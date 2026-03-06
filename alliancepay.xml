@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="utf-8"?>
+<extension type="plugin" group="vmpayment" version="5.0" method="upgrade">
+    <name>VM - AlliancePay</name>
+    <author>Alliance Dgtl.</author>
+    <creationDate>2026-01-12</creationDate>
+    <license>GNU General Public License v2 or later</license>
+    <version>1.0.2</version>
+    <description>Alliance Payment Gateway for VirtueMart</description>
+    <namespace path="src">Alliance\Plugin\Vmpayment\Alliancepay</namespace>
+    <element>alliancepay</element>
+    <files>
+        <filename plugin="alliancepay">src/Extension/AlliancePay.php</filename>
+        <file>index.html</file>
+        <folder>services</folder>
+        <folder>src</folder>
+        <folder>sql</folder>
+        <folder>tmpl</folder>
+        <folder>vendor</folder>
+        <folder>language</folder>
+    </files>
+    <install>
+        <sql>
+            <file driver="mysql" charset="utf8">sql/install.mysql.utf8.sql</file>
+        </sql>
+    </install>
+    <services>
+        <service name="plg_vmpayment_alliance" file="services/provider.php" />
+    </services>
+    <languages>
+        <language tag="en-GB">language/en-GB/en-GB.plg_vmpayment_alliancepay.ini</language>
+        <language tag="uk-UA">language/uk-UA/uk-UA.plg_vmpayment_alliancepay.ini</language>
+    </languages>
+    <vmconfig>
+        <fields name="params" addfieldprefix="Alliance\Plugin\Vmpayment\Alliancepay\Field">
+            <fieldset name="basic" label="VMPAYMENT_ALLIANCEPAY_BASIC">
+                <field
+                    name="status_page_type"
+                    type="list"
+                    default="STATUS_TIMER_PAGE"
+                    label="VMPAYMENT_ALLIANCEPAY_STATUS_PAGE_TYPE"
+                    description="VMPAYMENT_ALLIANCEPAY_STATUS_PAGE_TYPE_DESC">
+                    <option value="STATUS_TIMER_PAGE">VMPAYMENT_ALLIANCEPAY_STATUS_TIMER_PAGE</option>
+                    <option value="STATUS_REDIRECT_MERCHANT_PAGE">VMPAYMENT_ALLIANCEPAY_STATUS_REDIRECT</option>
+                    <option value="STATUS_PAGE">VMPAYMENT_ALLIANCEPAY_STATUS_PAGE</option>
+                </field>
+                <field
+                    name="api_url"
+                    type="url"
+                    label="VMPAYMENT_ALLIANCEPAY_API_URL"
+                    description="VMPAYMENT_ALLIANCEPAY_API_URL_DESC"
+                    schemes="https"
+                    validate="url"
+                    required="true"
+                />
+                <field
+                    name="service_code"
+                    type="text"
+                    label="VMPAYMENT_ALLIANCEPAY_SERVICE_CODE"
+                    description="VMPAYMENT_ALLIANCEPAY_SERVICE_CODE_DESC"
+                    required="true"
+                />
+                <field
+                    name="merchant_id"
+                    type="text"
+                    label="VMPAYMENT_ALLIANCEPAY_MERCHANT_ID"
+                    description="VMPAYMENT_ALLIANCEPAY_MERCHANT_ID_DESC"
+                    required="true"
+                />
+                <field
+                    name="auth_key"
+                    type="textarea"
+                    label="VMPAYMENT_ALLIANCEPAY_AUTH_KEY"
+                    description="VMPAYMENT_ALLIANCEPAY_AUTH_KEY_DESC"
+                    rows="5"
+                    cols="50"
+                    required="true"
+                />
+            </fieldset>
+            <fieldset name="statuses" label="VMPAYMENT_ALLIANCEPAY_STATUSES">
+
+                <field
+                    name="status_payment_success"
+                    type="vmorderstate"
+                    label="VMPAYMENT_ALLIANCEPAY_STATUS_PAYMENT_SUCCESS"
+                    description="VMPAYMENT_ALLIANCEPAY_STATUS_PAYMENT_SUCCESS_DESC"
+                />
+                <field
+                    name="status_payment_fail"
+                    type="vmorderstate"
+                    label="VMPAYMENT_ALLIANCEPAY_STATUS_PAYMENT_FAIL"
+                    description="VMPAYMENT_ALLIANCEPAY_STATUS_PAYMENT_FAIL_DESC"
+                />
+                <field
+                    name="status_refund_success"
+                    type="vmorderstate"
+                    label="VMPAYMENT_ALLIANCEPAY_STATUS_REFUND_SUCCESS"
+                    description="VMPAYMENT_ALLIANCEPAY_STATUS_REFUND_SUCCESS_DESC"
+                />
+                <field
+                    name="status_refund_fail"
+                    type="vmorderstate"
+                    label="VMPAYMENT_ALLIANCEPAY_STATUS_REFUND_FAIL"
+                    description="VMPAYMENT_ALLIANCEPAY_STATUS_REFUND_FAIL_DESC"
+                />
+            </fieldset>
+            <fieldset name="authorization" label="VMPAYMENT_ALLIANCEPAY_AUTHORIZATION">
+                <field
+                    name="auth_trigger"
+                    type="AllianceAuth"
+                    label="VMPAYMENT_ALLIANCEPAY_AUTH_LABEL"
+                    description="VMPAYMENT_ALLIANCEPAY_AUTH_DESC"
+                />
+            </fieldset>
+        </fields>
+    </vmconfig>
+    <vmref>alliancepay</vmref>
+</extension>

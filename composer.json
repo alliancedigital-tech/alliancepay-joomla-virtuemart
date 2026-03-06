@@ -1,0 +1,29 @@
+{
+    "name": "alliance/vm-payment-alliancepay",
+    "description": "Alliance Bank payment gateway for VirtueMart 4 (Joomla 5)",
+    "version": "1.0.2",
+    "type": "joomla-extension",
+    "license": "GPL-3.0-or-later",
+    "require": {
+        "php": ">=8.1",
+        "composer/installers": "^1.12 || ^2.0",
+        "guzzlehttp/guzzle": "^7.0",
+        "kelvinmo/simplejwt": "^1.0"
+    },
+    "extra": {
+        "name": "alliancepay",
+        "type": "plugin",
+        "group": "vmpayment"
+    },
+    "autoload": {
+        "psr-4": {
+            "Alliance\\Plugin\\Vmpayment\\Alliancepay\\": "src/"
+        }
+    },
+    "config": {
+        "allow-plugins": {
+            "composer/installers": true
+        },
+        "sort-packages": true
+    }
+}

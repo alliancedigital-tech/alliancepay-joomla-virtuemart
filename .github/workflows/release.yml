@@ -1,0 +1,24 @@
+name: Create Release Archive
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install dependencies
+        run: composer install --no-dev --optimize-autoloader
+
+      - name: Create ZIP
+        run: zip -r alliancepay-joomla-5-virtuemart-${{ github.ref_name }}.zip . -x ".git*" ".github*"
+
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: alliancepay-joomla-5-virtuemart-${{ github.ref_name }}.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
