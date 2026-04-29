@@ -4,7 +4,7 @@
     <author>Alliance Dgtl.</author>
     <creationDate>2026-01-12</creationDate>
     <license>GNU General Public License v2 or later</license>
-    <version>1.0.2</version>
+    <version>1.1.0</version>
     <description>Alliance Payment Gateway for VirtueMart</description>
     <namespace path="src">Alliance\Plugin\Vmpayment\Alliancepay</namespace>
     <element>alliancepay</element>

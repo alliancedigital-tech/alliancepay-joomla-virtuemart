@@ -29,7 +29,7 @@ use Alliance\Plugin\Vmpayment\Alliancepay\Extension\Entity\AllianceOrderTable;
 use Alliance\Plugin\Vmpayment\Alliancepay\Extension\Entity\AllianceRefundTable;
 use Alliance\Plugin\Vmpayment\Alliancepay\Services\UpdateOrder\UpdateAllianceOrder;
 use Alliance\Plugin\Vmpayment\Alliancepay\Services\Url\UrlProvider;
-use AlliancePay\Model\Payment\Processor\AbstractProcessor;
+use Alliance\Plugin\Vmpayment\Alliancepay\Services\Validation\ValidateCustomerData;
 use GuzzleHttp\Psr7\HttpFactory;
 use Joomla\CMS\Extension\PluginInterface;
 use Joomla\CMS\Plugin\PluginHelper;
@@ -137,6 +137,9 @@ return new class implements ServiceProviderInterface
                 $container->get(UpdateAllianceOrder::class),
             );
         });
+        $container->share(ValidateCustomerData::class, function () use ($container) {
+            return new ValidateCustomerData();
+        });
         $container->share(PaymentProcessor::class, function () use ($container) {
             return new PaymentProcessor(
                 $container->get(HttpClient::class),
@@ -145,6 +148,7 @@ return new class implements ServiceProviderInterface
                 $container->get(AllianceOrderTable::class),
                 $container->get(UpdateAllianceOrder::class),
                 $container->get(UrlProvider::class),
+                $container->get(ValidateCustomerData::class)
             );
         });
         $container->share(RefundProcessor::class, function () use ($container) {

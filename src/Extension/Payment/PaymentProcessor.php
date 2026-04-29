@@ -16,9 +16,11 @@ use Alliance\Plugin\Vmpayment\Alliancepay\Services\UpdateOrder\UpdateAllianceOrd
 use Alliance\Plugin\Vmpayment\Alliancepay\Services\Url\UrlProvider;
 use Alliance\Plugin\Vmpayment\Alliancepay\Extension\Payment\Processor\AbstractProcessor;
 use Alliance\Plugin\Vmpayment\Alliancepay\Services\ConvertData\ConvertDataService;
+use Alliance\Plugin\Vmpayment\Alliancepay\Services\Validation\ValidateCustomerData;
 use Exception;
 use GuzzleHttp\Exception\GuzzleException;
 use Joomla\CMS\Log\Log;
+use VmModel;
 
 /**
  * @package     Alliance\Plugin\Vmpayment\Alliancepay\Extension\Payment
@@ -34,6 +36,7 @@ class PaymentProcessor extends AbstractProcessor
         private readonly AllianceOrderTable $allianceOrder,
         private readonly UpdateAllianceOrder $updateAllianceOrder,
         private readonly UrlProvider $urlProvider,
+        private readonly ValidateCustomerData $validateCustomerData,
     ) {
         Log::addLogger(
             ['text_file' => 'plg_vmpayment_alliance.log.php'],
@@ -148,6 +151,11 @@ class PaymentProcessor extends AbstractProcessor
 
         return $data;
     }
+
+    /**
+     * @param $order
+     * @return array
+     */
     private function prepareCustomerData($order): array
     {
         $data = [];
@@ -157,24 +165,26 @@ class PaymentProcessor extends AbstractProcessor
         }
 
         $data['senderCustomerId'] = $order['details']['BT']->customer_number;
-        $firstName = $order['details']['BT']->first_name ?? '';
-        $lastName = $order['details']['BT']->last_name ?? '';
-        $middleName = $order['details']['BT']->middle_name ?? '';
-        $customerPhone = $order['details']['BT']->phone_1 ?? $order['details']['BT']->phone_2 ?? '';
-        $street = $order['details']['BT']->address_1 ?? $order['details']['BT']->address_2 ?? '';
+        $bt = $order['details']['BT'];
+        $countryModel = VmModel::getModel('country');
+        $stateModel = VmModel::getModel('state');
+        $country = $countryModel->getData($bt->virtuemart_country_id);
+        $state = $stateModel->getData($bt->virtuemart_state_id);
 
-        $data['senderEmail'] = $order['details']['BT']->email;
-        $data['senderFirstName'] = $firstName;
-        $data['senderLastName'] = $lastName;
-        $data['senderMiddleName'] = $middleName;
-        $data['senderRegion'] = $customerAddress['state'] ?? '';
-        $data['senderStreet'] = $street;
-        $data['senderCity'] = $order['details']['BT']->city;
-        $data['senderZipCode'] = $order['details']['BT']->zip;
-        $data['senderPhone'] = $customerPhone;
-        $data['senderCountry'] = $order['details']['BT']->virtuemart_country_id;
+        $data['senderEmail'] = $bt->email ?? '';
+        $data['senderFirstName'] = $bt->first_name ?? '';
+        $data['senderLastName'] = $bt->last_name ?? '';
+        $data['senderMiddleName'] = $bt->middle_name ?? '';
+        $data['senderPhone'] = $bt->phone_1 ?: ($bt->phone_2 ?: '');
+        $data['senderCity'] = $bt->city ?? '';
+        $data['senderZipCode'] = $bt->zip ?? '';
+        $data['senderStreet'] = $bt->address_1 ?? '';
+        $data['senderAdditionalAddress'] = $bt->address_2 ?? '';
+        $data['senderCountry'] = $country->country_num_code ?? '';
+        $data['senderRegion'] = $state->state_name ?? '';
+        $data['senderIp'] = $bt->ip_address ?? '';
 
-        return $this->validateAndClenUpData($data);
+        return $this->validateCustomerData->validateAndClenUpData($data);
     }
 
     /**
