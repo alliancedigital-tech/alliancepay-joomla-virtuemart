@@ -39,6 +39,7 @@ class AllianceOrderTable extends VmTable
     public $is_callback_returned = 0;
     public $callback_data = '';
     public $expired_order_date = '0000-00-00 00:00:00';
+    public $transaction_type = null;
 
     public function __construct(
         &$db,

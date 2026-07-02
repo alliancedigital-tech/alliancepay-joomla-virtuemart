@@ -94,8 +94,12 @@ class AlliancePay extends vmPSPlugin
                 && !empty($data['operation']['status'])
             ) {
                 $newStatus = null;
+                $operrationTypes = [
+                    Config::OPERATION_TYPE_PURCHASE,
+                    Config::OPERATION_TYPE_A2A,
+                ];
 
-                if ($data['operation']['type'] === 'PURCHASE') {
+                if (in_array($data['operation']['type'], $operrationTypes)) {
                     $newStatus = $data['operation']['status'] === 'SUCCESS'
                         ? $this->allianceConfig->getSuccessPaymentStatus() : $this->allianceConfig->getFailPaymentStatus();
                 }
@@ -412,6 +416,7 @@ class AlliancePay extends vmPSPlugin
         $orderModel = VmModel::getModel('orders');
         $order = $orderModel->getOrder($orderId);
         $isFullRefundAllowed = true;
+        $isRefundAllowed = true;
 
         foreach ($order['items'] as $item) {
             if ($item->order_status === $this->allianceConfig->getSuccessRefundStatus()) {
@@ -420,11 +425,16 @@ class AlliancePay extends vmPSPlugin
             }
         }
 
+        if ($allianceOrder->transaction_type === 102 && $allianceOrder->hpp_pay_type === Config::HPP_PAY_TYPE_A2A) {
+            $isRefundAllowed = false;
+        }
+
         $viewData = new stdClass();
         $viewData->order_id = $orderId;
         $viewData->items = $order['items'];
         $viewData->fullRefundTriger = self::FULL_REFUND_TRIGGER;
         $viewData->isFullRefundAllowed = $isFullRefundAllowed;
+        $viewData->isRefundAllowed = $isRefundAllowed;
         $viewData->partialRefundTrigger = self::PARTIAL_REFUND_TRIGGER;
 
         $html .= $this->renderByLayout('refund_form', (array)$viewData);

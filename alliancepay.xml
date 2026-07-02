@@ -4,7 +4,7 @@
     <author>Alliance Dgtl.</author>
     <creationDate>2026-01-12</creationDate>
     <license>GNU General Public License v2 or later</license>
-    <version>1.1.0</version>
+    <version>1.2.0</version>
     <description>Alliance Payment Gateway for VirtueMart</description>
     <namespace path="src">Alliance\Plugin\Vmpayment\Alliancepay</namespace>
     <element>alliancepay</element>
@@ -23,6 +23,11 @@
             <file driver="mysql" charset="utf8">sql/install.mysql.utf8.sql</file>
         </sql>
     </install>
+    <update>
+        <schemas>
+            <schemapath type="mysql">sql/updates/mysql</schemapath>
+        </schemas>
+    </update>
     <services>
         <service name="plg_vmpayment_alliance" file="services/provider.php" />
     </services>
@@ -42,6 +47,15 @@
                     <option value="STATUS_TIMER_PAGE">VMPAYMENT_ALLIANCEPAY_STATUS_TIMER_PAGE</option>
                     <option value="STATUS_REDIRECT_MERCHANT_PAGE">VMPAYMENT_ALLIANCEPAY_STATUS_REDIRECT</option>
                     <option value="STATUS_PAGE">VMPAYMENT_ALLIANCEPAY_STATUS_PAGE</option>
+                </field>
+                <field
+                        name="payment_type"
+                        type="list"
+                        default="PURCHASE"
+                        label="VMPAYMENT_ALLIANCEPAY_HPP_PAYMENT_TYPE"
+                        description="VMPAYMENT_ALLIANCEPAY_HPP_PAYMENT_TYPE_DESC">
+                    <option value="PURCHASE">PURCHASE</option>
+                    <option value="A2A">A2A</option>
                 </field>
                 <field
                     name="api_url"

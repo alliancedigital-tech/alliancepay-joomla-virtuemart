@@ -2,6 +2,12 @@
 defined('_JEXEC') or die('Restricted access');
 ?>
 
+<?php if ($viewData['isRefundAllowed'] === false) : ?>
+<div class="alert alert-warning" style="margin-top: 20px; padding: 15px;">
+    <?= JText::_('VMPAYMENT_ALLIANCE_REFUND_A2A_NOT_AVAILABLE'); ?>
+</div>
+<?php endif; ?>
+
 <div class="alliance-refund-wrapper" style="margin-top: 20px; border: 1px solid #ccc; padding: 15px;">
     <h4><?= JText::_('VMPAYMENT_ALLIANCE_PARTIAL_REFUND_TITLE'); ?></h4>
 
@@ -37,7 +43,12 @@ defined('_JEXEC') or die('Restricted access');
 
         <div class="refund-controls" style="margin-top: 10px;">
             <input type="number" id="refund_total_amount" name="amount" step="0.01" placeholder="Total amount to refund" readonly />
-            <button id="partial-refund-btn" type="button" class="btn btn-warning" style="margin: 10px;" onclick="processAllianceRefund(<?= $viewData['order_id']; ?>)">
+            <button id="partial-refund-btn"
+                    type="button"
+                    class="btn btn-warning"
+                    style="margin: 10px;"
+                    onclick="processAllianceRefund(<?= $viewData['order_id']; ?>)"
+                    <?= $viewData['isRefundAllowed'] ? '' : 'disabled="disabled"'; ?> >
                 <?= JText::_('VMPAYMENT_ALLIANCE_EXECUTE_REFUND'); ?>
             </button>
         </div>
@@ -51,7 +62,7 @@ defined('_JEXEC') or die('Restricted access');
             <button type="button"
                     class="btn btn-warning"
                     style="margin: 10px;" onclick="processAllianceFullRefund(<?= $viewData['order_id']; ?>)"
-                    <?= $viewData['isFullRefundAllowed'] ? '' : 'disabled="disabled"'; ?> >
+                    <?= $viewData['isFullRefundAllowed'] && $viewData['isRefundAllowed'] ? '' : 'disabled="disabled"'; ?> >
                 <?= JText::_('VMPAYMENT_ALLIANCE_EXECUTE_FULL_REFUND'); ?>
             </button>
         </div>

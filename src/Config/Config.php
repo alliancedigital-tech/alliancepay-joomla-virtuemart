@@ -17,7 +17,15 @@ use Throwable;
 class Config
 {
     public const PAYMENT_METHODS = ['CARD', 'APPLE_PAY', 'GOOGLE_PAY'];
-    public const HPP_PAY_TYPE = 'PURCHASE';
+    public const HPP_PAY_TYPE_PURCHASE = 'PURCHASE';
+    public const HPP_PAY_TYPE_A2A = 'A2A';
+    public const OPERATION_TYPE_A2A = 'ACCOUNT_2_ACCOUNT';
+    public const DIRECT_TYPE_BANK_LINK = 'BANK_LINK';
+    public const PRIORITY_BANK_CODE = 'ALL_BANKS';
+
+    public const OPERATION_TYPE_PURCHASE = 'PURCHASE';
+    public const OPERATION_TYPE_REFUND = 'REFUND';
+    public const OPERATION_TYPE_ACCOUNT_2_ACCOUNT = 'ACCOUNT_2_ACCOUNT';
     public const SENSITIVE_DATA_FIELD_REFRESH_TOKEN = 'refreshToken';
     public const SENSITIVE_DATA_FIELD_AUTH_TOKEN = 'authToken';
     public const SENSITIVE_DATA_FIELD_DEVICE_ID = 'deviceId';
@@ -42,6 +50,7 @@ class Config
     const PAYMENT_MERCHAT_ID_CONFIG_NAME = 'merchant_id';
 
     const PAYMENT_STATUS_PAGE_TYPE_CONFIG_NAME = 'status_page_type';
+    const PAYMENT_HPP_PAY_TYPE_CONFIG_NAME = 'payment_type';
     const PAYMENT_REFRESH_TOKEN_CONFIG_NAME = 'refresh_token';
 
     const PAYMENT_AUTH_TOKEN_CONFIG_NAME = 'auth_token';
@@ -217,6 +226,11 @@ class Config
     public function getStatusPageType(): string
     {
         return $this->params[self::PAYMENT_STATUS_PAGE_TYPE_CONFIG_NAME] ?? '';
+    }
+
+    public function getPaymentType(): string
+    {
+        return $this->params[self::PAYMENT_HPP_PAY_TYPE_CONFIG_NAME] ?? self::HPP_PAY_TYPE_PURCHASE;
     }
 
     /**

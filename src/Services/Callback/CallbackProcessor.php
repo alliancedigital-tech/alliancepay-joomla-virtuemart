@@ -9,6 +9,7 @@
 
 namespace Alliance\Plugin\Vmpayment\Alliancepay\Services\Callback;
 
+use Alliance\Plugin\Vmpayment\Alliancepay\Config\Config;
 use Alliance\Plugin\Vmpayment\Alliancepay\Services\UpdateOrder\UpdateAllianceOrder;
 use Exception;
 use Joomla\CMS\Log\Log;
@@ -61,7 +62,7 @@ class CallbackProcessor
     private function updateRefundIfExists(array $data): bool
     {
         if (!empty($data['operation']['type'])
-            && $data['operation']['type'] === 'REFUND'
+            && $data['operation']['type'] === Config::OPERATION_TYPE_REFUND
         ) {
             return $this->updateAllianceOrder->updateAllianceRefund(
                 $data['operation']
