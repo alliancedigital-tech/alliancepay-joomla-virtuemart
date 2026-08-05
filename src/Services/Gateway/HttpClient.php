@@ -41,6 +41,7 @@ class HttpClient
     private const ENDPOINT_CREATE_ORDER = '/ecom/execute_request/hpp/v1/create-order';
     private const ENDPOINT_OPERATIONS = '/ecom/execute_request/hpp/v1/operations';
     private const ENDPOINT_REFUND = '/ecom/execute_request/payments/v3/refund';
+    private const ENDPOINT_COMPLETION = '/ecom/execute_request/payments/v1/completion';
     private const ENDPOINT_AUTHORIZE = '/api-gateway/authorize_virtual_device';
     private const MAX_AUTH_ATTEMPTS = 3;
     private $authCounter;
@@ -168,6 +169,57 @@ class HttpClient
         return [
             'success' => false,
             'message' => 'Failed to refund order.',
+        ];
+    }
+
+    /**
+     * @param array $completionData
+     *
+     * @return array
+     *
+     * @throws GuzzleException
+     * @since version 1.3.0
+     */
+    public function completion(array $completionData): array
+    {
+        $serverPublicKey = json_decode($this->config->getServerPublicKey(), true);
+        $encryptedData = $this->jweEncryptionService->encrypt(
+            $completionData,
+            $serverPublicKey
+        );
+
+        try {
+            $response = $this->sendRequest(
+                self::METHOD_POST,
+                self::ENDPOINT_COMPLETION,
+                $encryptedData,
+                self::REQUEST_CONTENT_TYPE_TEXT
+            );
+        } catch (RequestException $e) {
+            Log::add('Completion failed: ' . $e->getMessage(), Log::ERROR);
+
+            return [
+                'success' => false,
+                'message' => 'Completion failed: ' . $e->getMessage(),
+            ];
+        }
+
+        $decodedResponse = json_decode($response->getBody()->getContents(), true);
+
+        if (isset($decodedResponse['jwe'])) {
+            $decryptedResponse = $this->jweEncryptionService->decrypt(
+                $this->config->getAuthorizationKey(),
+                $decodedResponse['jwe']
+            );
+
+            if (!empty($decryptedResponse)) {
+                return $this->validateResponse($decryptedResponse);
+            }
+        }
+
+        return [
+            'success' => false,
+            'message' => 'Failed to complete order.',
         ];
     }
 

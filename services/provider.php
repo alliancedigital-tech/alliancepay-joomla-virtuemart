@@ -17,6 +17,7 @@ if (file_exists(JPATH_PLUGINS . '/vmpayment/alliancepay/vendor/autoload.php')) {
 }
 
 use Alliance\Plugin\Vmpayment\Alliancepay\Extension\Entity\AllianceAuthenticationData;
+use Alliance\Plugin\Vmpayment\Alliancepay\Extension\Payment\CompletionProcessor;
 use Alliance\Plugin\Vmpayment\Alliancepay\Extension\Payment\PaymentProcessor;
 use Alliance\Plugin\Vmpayment\Alliancepay\Extension\Payment\RefundProcessor;
 use Alliance\Plugin\Vmpayment\Alliancepay\Services\Callback\CallbackProcessor;
@@ -162,6 +163,15 @@ return new class implements ServiceProviderInterface
                 $container->get(DateTimeNormalizer::class),
             );
         });
+        $container->share(CompletionProcessor::class, function () use ($container) {
+            return new CompletionProcessor(
+                $container->get(AllianceOrderTable::class),
+                $container->get(Config::class),
+                $container->get(HttpClient::class),
+                $container->get(UrlProvider::class),
+                $container->get(DateTimeNormalizer::class),
+            );
+        });
 
         $container->set(
             PluginInterface::class,
@@ -176,6 +186,7 @@ return new class implements ServiceProviderInterface
                     $container->get(AllianceOrderTable::class),
                     $container->get(AllianceRefundTable::class),
                     $container->get(AuthorizationService::class),
+                    $container->get(CompletionProcessor::class),
                     $subject,
                     $config
                 );

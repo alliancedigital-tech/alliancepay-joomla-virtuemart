@@ -2,14 +2,12 @@
 namespace Alliance\Plugin\Vmpayment\Alliancepay\Config;
 
 use Alliance\Plugin\Vmpayment\Alliancepay\Extension\Entity\AllianceAuthenticationData;
-use Alliance\Plugin\Vmpayment\Alliancepay\Extension\Entity\AllianceOrderTable;
 use Alliance\Plugin\Vmpayment\Alliancepay\Services\ConvertData\ConvertDataService;
 use Alliance\Plugin\Vmpayment\Alliancepay\Services\DateTime\DateTimeNormalizer;
 use Exception;
 use Joomla\CMS\Log\Log;
 use Joomla\CMS\Plugin\PluginHelper;
 use Joomla\Database\DatabaseInterface;
-use Joomla\Registry\Registry;
 use Joomla\CMS\Factory;
 use Alliance\Plugin\Vmpayment\Alliancepay\Config\ConfigParser\PipeParser;
 use Throwable;
@@ -19,6 +17,7 @@ class Config
     public const PAYMENT_METHODS = ['CARD', 'APPLE_PAY', 'GOOGLE_PAY'];
     public const HPP_PAY_TYPE_PURCHASE = 'PURCHASE';
     public const HPP_PAY_TYPE_A2A = 'A2A';
+    public const HPP_PAY_TYPE_PREAUTH = 'PREAUTH';
     public const OPERATION_TYPE_A2A = 'ACCOUNT_2_ACCOUNT';
     public const DIRECT_TYPE_BANK_LINK = 'BANK_LINK';
     public const PRIORITY_BANK_CODE = 'ALL_BANKS';
@@ -26,6 +25,9 @@ class Config
     public const OPERATION_TYPE_PURCHASE = 'PURCHASE';
     public const OPERATION_TYPE_REFUND = 'REFUND';
     public const OPERATION_TYPE_ACCOUNT_2_ACCOUNT = 'ACCOUNT_2_ACCOUNT';
+    public const OPERATION_TYPE_PREAUTH = 'PREAUTH';
+    public const OPERATION_TYPE_COMPLETION = 'COMPLETION';
+
     public const SENSITIVE_DATA_FIELD_REFRESH_TOKEN = 'refreshToken';
     public const SENSITIVE_DATA_FIELD_AUTH_TOKEN = 'authToken';
     public const SENSITIVE_DATA_FIELD_DEVICE_ID = 'deviceId';
@@ -70,6 +72,10 @@ class Config
 
     const PAYMENT_SUCCESS_REFUND_STATUS_CONFIG_NAME = 'status_refund_success';
     const PAYMENT_FAIL_REFUND_STATUS_CONFIG_NAME = 'status_refund_fail';
+
+    const PAYMENT_PREAUTH_EXP_DATE_CONFIG_NAME = 'preauth_exp_date';
+    const PAYMENT_PREAUTH_PENDING_STATUS_CONFIG_NAME = 'status_preauth_pending';
+    const PAYMENT_COMPLETION_TRIGGER_STATUS_CONFIG_NAME = 'status_completion_trigger';
 
     private array $params;
 
@@ -277,6 +283,39 @@ class Config
     }
 
     /**
+     *
+     * @return string
+     *
+     * @since version 1.3.0
+     */
+    public function getPreAuthExpDate(): string
+    {
+        return $this->params[self::PAYMENT_PREAUTH_EXP_DATE_CONFIG_NAME] ?? '2h';
+    }
+
+    /**
+     *
+     * @return string
+     *
+     * @since version 1.3.0
+     */
+    public function getPreAuthPendingStatus(): string
+    {
+        return $this->params[self::PAYMENT_PREAUTH_PENDING_STATUS_CONFIG_NAME] ?? '';
+    }
+
+    /**
+     *
+     * @return string
+     *
+     * @since version 1.3.0
+     */
+    public function getCompletionTriggerStatus(): string
+    {
+        return $this->params[self::PAYMENT_COMPLETION_TRIGGER_STATUS_CONFIG_NAME] ?? '';
+    }
+
+    /**
      * @param array $authData
      *
      *
@@ -306,7 +345,7 @@ class Config
             );
             if (!$this->allianceAuthenticationData->bind($convertedAuthData)) {
                 throw new Exception(
-                    'Помилка прив’язки даних: ' . $this->allianceAuthenticationData->getError()
+                    'Помилка прив\'язки даних: ' . $this->allianceAuthenticationData->getError()
                 );
             }
 

@@ -10,6 +10,7 @@ if (!class_exists('vmPSPlugin')) {
 use Alliance\Plugin\Vmpayment\Alliancepay\Config\Config;
 use Alliance\Plugin\Vmpayment\Alliancepay\Extension\Entity\AllianceOrderTable;
 use Alliance\Plugin\Vmpayment\Alliancepay\Extension\Entity\AllianceRefundTable;
+use Alliance\Plugin\Vmpayment\Alliancepay\Extension\Payment\CompletionProcessor;
 use Alliance\Plugin\Vmpayment\Alliancepay\Extension\Payment\PaymentProcessor;
 use Alliance\Plugin\Vmpayment\Alliancepay\Extension\Payment\RefundProcessor;
 use Alliance\Plugin\Vmpayment\Alliancepay\Services\Callback\CallbackProcessor;
@@ -55,6 +56,7 @@ class AlliancePay extends vmPSPlugin
         private readonly AllianceOrderTable $allianceOrderTable,
         private readonly AllianceRefundTable $allianceRefundTable,
         private readonly AuthorizationService $authorizationService,
+        private readonly CompletionProcessor $completionProcessor,
         $subject,
         $config = []
     ) {
@@ -99,9 +101,18 @@ class AlliancePay extends vmPSPlugin
                     Config::OPERATION_TYPE_A2A,
                 ];
 
+                $preAuthOperationTypes = [
+                    Config::OPERATION_TYPE_PREAUTH,
+                    Config::OPERATION_TYPE_COMPLETION
+                ];
+
                 if (in_array($data['operation']['type'], $operrationTypes)) {
                     $newStatus = $data['operation']['status'] === 'SUCCESS'
                         ? $this->allianceConfig->getSuccessPaymentStatus() : $this->allianceConfig->getFailPaymentStatus();
+                }
+
+                if (in_array( $data['operation']['type'], $preAuthOperationTypes)) {
+                    $newStatus = null;
                 }
 
                 if ($data['operation']['type'] === 'REFUND') {
@@ -133,6 +144,82 @@ class AlliancePay extends vmPSPlugin
         }
 
         return null;
+    }
+
+    /**
+     * @param $orderDetails
+     * @param $oldOrderDetails
+     *
+     * @return bool
+     *
+     * @since version 1.3.0
+     */
+    public function plgVmOnUpdateOrderPayment($orderDetails, $oldOrderDetails): bool
+    {
+        $completionTriggerStatus = $this->allianceConfig->getCompletionTriggerStatus();
+
+        if (empty($completionTriggerStatus)) {
+            return true;
+        }
+
+        if ($orderDetails->order_status !== $completionTriggerStatus) {
+            return true;
+        }
+
+        $orderId = (int) $orderDetails->virtuemart_order_id;
+
+        if (!$orderId) {
+            return true;
+        }
+
+        try {
+            $allianceOrder = $this->allianceOrderTable->load($orderId, 'order_id');
+            $allianceOrderData = $allianceOrder->getProperties();
+        } catch (Exception $e) {
+            Log::add(
+                'plgVmOnUpdateOrderPayment: failed to load alliance order for order_id=' . $orderId . ': ' . $e->getMessage(),
+                Log::ERROR,
+                'alliance_payment'
+            );
+
+            return true;
+        }
+
+        if (($allianceOrderData['hpp_pay_type'] ?? '') !== Config::HPP_PAY_TYPE_PREAUTH) {
+            return true;
+        }
+
+        $orderModel = VmModel::getModel('orders');
+        $order = $orderModel->getOrder($orderId);
+        $orderTotal = $order['details']['BT']->order_total ?? 0;
+        $newCoinAmount = (int) round((float) $orderTotal * 100);
+
+        $result = $this->completionProcessor->processCompletion($orderId, $newCoinAmount);
+
+        if (!$result['success']) {
+            $entry = 'plgVmOnUpdateOrderPayment: failed to process completion for order_id='
+                . $orderId
+                . ': '
+                . $result['message'];
+            Log::add(
+                $entry,
+                Log::ERROR,
+                'alliance_payment'
+            );
+
+            $previousStatus = $oldOrderDetails->order_status ?? '';
+            if (!empty($previousStatus)) {
+                $orderModel->updateStatusForOneOrder(
+                    $orderId,
+                    ['order_status' => $previousStatus],
+                    true
+                );
+            }
+
+            return false;
+        }
+
+        return true;
     }
 
     /**

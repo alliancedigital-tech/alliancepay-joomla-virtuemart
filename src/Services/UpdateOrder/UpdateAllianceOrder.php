@@ -208,6 +208,8 @@ class UpdateAllianceOrder
         $operationTypes = [
             Config::OPERATION_TYPE_PURCHASE,
             Config::OPERATION_TYPE_A2A,
+            Config::OPERATION_TYPE_PREAUTH,
+            Config::OPERATION_TYPE_COMPLETION
         ];
 
         foreach ($callbackData['operations'] as $operation) {

@@ -4,7 +4,7 @@
     <author>Alliance Dgtl.</author>
     <creationDate>2026-01-12</creationDate>
     <license>GNU General Public License v2 or later</license>
-    <version>1.2.0</version>
+    <version>1.3.0</version>
     <description>Alliance Payment Gateway for VirtueMart</description>
     <namespace path="src">Alliance\Plugin\Vmpayment\Alliancepay</namespace>
     <element>alliancepay</element>
@@ -56,6 +56,23 @@
                         description="VMPAYMENT_ALLIANCEPAY_HPP_PAYMENT_TYPE_DESC">
                     <option value="PURCHASE">PURCHASE</option>
                     <option value="A2A">A2A</option>
+                    <option value="PREAUTH">PREAUTH</option>
+                </field>
+                <field
+                    name="preauth_exp_date"
+                    type="list"
+                    default="2h"
+                    label="VMPAYMENT_ALLIANCEPAY_PREAUTH_EXP_DATE"
+                    description="VMPAYMENT_ALLIANCEPAY_PREAUTH_EXP_DATE_DESC">
+                    <option value="2h">2h</option>
+                    <option value="4h">4h</option>
+                    <option value="6h">6h</option>
+                    <option value="12h">12h</option>
+                    <option value="1d">1d</option>
+                    <option value="2d">2d</option>
+                    <option value="7d">7d</option>
+                    <option value="14d">14d</option>
+                    <option value="28d">28d</option>
                 </field>
                 <field
                     name="api_url"
@@ -115,6 +132,18 @@
                     type="vmorderstate"
                     label="VMPAYMENT_ALLIANCEPAY_STATUS_REFUND_FAIL"
                     description="VMPAYMENT_ALLIANCEPAY_STATUS_REFUND_FAIL_DESC"
+                />
+                <field
+                    name="status_preauth_pending"
+                    type="vmorderstate"
+                    label="VMPAYMENT_ALLIANCEPAY_STATUS_PREAUTH_PENDING"
+                    description="VMPAYMENT_ALLIANCEPAY_STATUS_PREAUTH_PENDING_DESC"
+                />
+                <field
+                    name="status_completion_trigger"
+                    type="vmorderstate"
+                    label="VMPAYMENT_ALLIANCEPAY_STATUS_COMPLETION_TRIGGER"
+                    description="VMPAYMENT_ALLIANCEPAY_STATUS_COMPLETION_TRIGGER_DESC"
                 />
             </fieldset>
             <fieldset name="authorization" label="VMPAYMENT_ALLIANCEPAY_AUTHORIZATION">

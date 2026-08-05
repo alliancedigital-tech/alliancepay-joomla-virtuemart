@@ -17,6 +17,8 @@ use Alliance\Plugin\Vmpayment\Alliancepay\Services\Url\UrlProvider;
 use Alliance\Plugin\Vmpayment\Alliancepay\Extension\Payment\Processor\AbstractProcessor;
 use Alliance\Plugin\Vmpayment\Alliancepay\Services\ConvertData\ConvertDataService;
 use Alliance\Plugin\Vmpayment\Alliancepay\Services\Validation\ValidateCustomerData;
+use DateTime;
+use DateTimeZone;
 use Exception;
 use GuzzleHttp\Exception\GuzzleException;
 use Joomla\CMS\Log\Log;
@@ -73,7 +75,25 @@ class PaymentProcessor extends AbstractProcessor
                 );
 
                 $preparedData['order_id'] = $orderId;
+
+                if ($this->config->getPaymentType() === Config::HPP_PAY_TYPE_PREAUTH) {
+                    $coinAmount = $this->prepareCoinAmount((float) $order['details']['BT']->order_total);
+                    $preparedData['original_authorized_amount'] = $coinAmount;
+                }
+
                 $this->allianceOrder->bindChecknStoreAllianceOrder($preparedData);
+
+                if ($this->config->getPaymentType() === Config::HPP_PAY_TYPE_PREAUTH) {
+                    $preAuthPendingStatus = $this->config->getPreAuthPendingStatus();
+                    if (!empty($preAuthPendingStatus)) {
+                        $modelOrder = VmModel::getModel('orders');
+                        $modelOrder->updateStatusForOneOrder(
+                            $orderId,
+                            ['order_status' => $preAuthPendingStatus],
+                            true
+                        );
+                    }
+                }
 
                 return $resultRequest;
             }
@@ -155,12 +175,57 @@ class PaymentProcessor extends AbstractProcessor
             $data['merchantComment'] = 'Payment for order #' . ($orderId ?? '');
         }
 
+        if ($data['hppPayType'] === Config::HPP_PAY_TYPE_PREAUTH) {
+            $data['preAuthExpDate'] = $this->calculatePreAuthExpDate();
+        }
+
         return $data;
     }
 
     /**
+     *
+     * @return string
+     *
+     * @throws \DateInvalidTimeZoneException
+     * @throws \DateMalformedStringException
+     * @since version 1.3.0
+     */
+    private function calculatePreAuthExpDate(): string
+    {
+        $expPeriod = $this->config->getPreAuthExpDate();
+
+        $intervalMap = [
+            '2h'  => '+2 hours',
+            '4h'  => '+4 hours',
+            '6h'  => '+6 hours',
+            '12h' => '+12 hours',
+            '1d'  => '+1 day',
+            '2d'  => '+2 days',
+            '7d'  => '+7 days',
+            '14d' => '+14 days',
+            '28d' => '+28 days',
+        ];
+
+        $modifier = $intervalMap[$expPeriod] ?? '+2 hours';
+
+        $now = new DateTime('now', new DateTimeZone(date_default_timezone_get()));
+        $now->modify($modifier);
+        $now->modify('+30 seconds');
+
+        $milliseconds = substr((string) round($now->format('u') / 10000), 0, 2);
+        if (strlen($milliseconds) < 2) {
+            $milliseconds = str_pad($milliseconds, 2, '0');
+        }
+
+        return $now->format('Y-m-d H:i:s') . '.' . $milliseconds . $now->format('P');
+    }
+
+    /**
      * @param $order
+     *
      * @return array
+     *
+     * @since version 1.0.0
      */
     private function prepareCustomerData($order): array
     {

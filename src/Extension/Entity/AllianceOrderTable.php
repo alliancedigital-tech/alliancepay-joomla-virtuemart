@@ -40,6 +40,7 @@ class AllianceOrderTable extends VmTable
     public $callback_data = '';
     public $expired_order_date = '0000-00-00 00:00:00';
     public $transaction_type = null;
+    public $original_authorized_amount = null;
 
     public function __construct(
         &$db,
@@ -82,7 +83,7 @@ class AllianceOrderTable extends VmTable
         }
 
         if (!$this->bind($orderData)) {
-            throw new Exception('Помилка прив’язки даних: ' . $this->getError());
+            throw new Exception('Помилка прив\'язки даних: ' . $this->getError());
         }
 
         if (!$this->check()) {
