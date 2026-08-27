@@ -29,6 +29,7 @@ use VmConfig;
 use VmModel;
 use vmPSPlugin;
 use Alliance\Plugin\Vmpayment\Alliancepay\Services\Authorization\AuthorizationService;
+use Joomla\CMS\Language\Text;
 use vRequest;
 
 /**
@@ -191,8 +192,10 @@ class AlliancePay extends vmPSPlugin
 
         $orderModel = VmModel::getModel('orders');
         $order = $orderModel->getOrder($orderId);
-        $orderTotal = $order['details']['BT']->order_total ?? 0;
-        $newCoinAmount = (int) round((float) $orderTotal * 100);
+        $bt = $order['details']['BT'];
+        $userCurrRate = (float)($bt->user_currency_rate ?: 1.0);
+        $paymentAmount = round((float)($bt->order_total ?? 0) * $userCurrRate, 2);
+        $newCoinAmount = (int)round($paymentAmount * 100);
 
         $result = $this->completionProcessor->processCompletion($orderId, $newCoinAmount);
 
@@ -269,7 +272,22 @@ class AlliancePay extends vmPSPlugin
      */
     public function plgVmSetOnTablePluginParamsPayment($name, $id, &$table)
     {
-        return $this->setOnTablePluginParams($name, $id, $table);
+        $result = $this->setOnTablePluginParams($name, $id, $table);
+
+        if ($result) {
+            $paymentType = vRequest::getCmd('payment_type', '');
+
+            if ($paymentType === Config::HPP_PAY_TYPE_A2A
+                && $this->allianceConfig->hasNonUahAcceptedCurrency()
+            ) {
+                Factory::getApplication()->enqueueMessage(
+                    Text::_('VMPAYMENT_ALLIANCEPAY_A2A_NON_UAH_WARNING'),
+                    'warning'
+                );
+            }
+        }
+
+        return $result;
     }
 
     /**
@@ -313,6 +331,15 @@ class AlliancePay extends vmPSPlugin
         }
 
         $orderResult = $this->paymentProcessor->processPayment($order);
+
+        if (($orderResult['error'] ?? '') === 'unsupported_currency') {
+            Factory::getApplication()->enqueueMessage(
+                Text::_('VMPAYMENT_ALLIANCEPAY_UNSUPPORTED_CURRENCY_ERROR'),
+                'error'
+            );
+
+            return false;
+        }
 
         if (!empty($orderResult['redirectUrl'])) {
             $app = Factory::getApplication();
@@ -488,17 +515,49 @@ class AlliancePay extends vmPSPlugin
         $operations = $callbackData['operations'] ?? [];
         $transactions = [];
 
+        $conversionRate = $allianceOrder->conversion_rate !== null
+            ? (float) $allianceOrder->conversion_rate
+            : null;
+
+        $currencyName = null;
+        if ($allianceOrder->currency_code !== null) {
+            $currencyName = $this->allianceConfig->getCurrencyNameByNumericCode(
+                (int) $allianceOrder->currency_code
+            );
+        }
+
+        $hasForeignCurrency = $conversionRate > 1.0 && $currencyName !== null;
+
         foreach ($operations as $operation) {
-            $transactions[] = [
+            $coinAmountUah = (int) $operation['coinAmount'];
+            $priceUAH      = round($coinAmountUah / 100, 2);
+
+            $tx = [
                 'type' => $operation['type'],
-                'coinAmount' => $operation['coinAmount'],
                 'operationId' => $operation['operationId'] ?? '',
                 'status' => $operation['status'],
                 'creationDateTime' => $operation['creationDateTime'],
+                'priceUAH' => $priceUAH,
+                'priceUSD' => null,
+                'priceEUR' => null,
             ];
+
+            if ($hasForeignCurrency) {
+                $foreignAmount = round($coinAmountUah / $conversionRate / 100, 2);
+                if ($currencyName === 'USD') {
+                    $tx['priceUSD'] = $foreignAmount;
+                } elseif ($currencyName === 'EUR') {
+                    $tx['priceEUR'] = $foreignAmount;
+                }
+            }
+
+            $transactions[] = $tx;
         }
 
-        $html = $this->renderByLayout('callback_info', ['transactions' => $transactions]);
+        $html = $this->renderByLayout('callback_info', [
+            'transactions' => $transactions,
+            'hppOrderId' => $allianceOrder->hpp_order_id,
+        ]);
 
         $orderModel = VmModel::getModel('orders');
         $order = $orderModel->getOrder($orderId);

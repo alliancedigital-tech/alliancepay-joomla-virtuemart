@@ -53,6 +53,11 @@ class UpdateAllianceOrder
         $preparedCallback['callback_returned'] = true;
         $preparedCallback['updated_at'] = $this->dateTimeProvider->getNowDate();
 
+        $conversionRate = $this->getConversionRateFromCallbackData($preparedCallback);
+        if ($conversionRate !== null) {
+            $preparedCallback['conversion_rate'] = $conversionRate;
+        }
+
         try {
             $allianceOrderObject->bindChecknStoreAllianceOrder($preparedCallback);
         } catch (Exception $exception) {
@@ -221,6 +226,36 @@ class UpdateAllianceOrder
         }
 
         return $purchaseOperation;
+    }
+
+    /**
+     * @param array $callbackData  Snake-cased callback data (with 'operations' key)
+     *
+     * @return float|null
+     *
+     * @since version 1.4.0
+     */
+    private function getConversionRateFromCallbackData(array $callbackData): ?float
+    {
+        $targetTypes = [
+            Config::OPERATION_TYPE_PREAUTH,
+            Config::OPERATION_TYPE_PURCHASE
+        ];
+
+        $operations = $callbackData['operations'] ?? [];
+
+        $conversionRate = null;
+        foreach ($operations as $operation) {
+            $type = $operation['type'] ?? $operation['type'] ?? '';
+            if (in_array($type, $targetTypes, true)) {
+                $rate = $operation['conversionRate'] ?? $operation['conversion_rate'] ?? null;
+                if ($rate !== null && (float) $rate > 0) {
+                    $conversionRate = (float) $rate;
+                }
+            }
+        }
+
+        return $conversionRate;
     }
 
     /**

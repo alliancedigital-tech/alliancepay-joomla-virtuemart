@@ -41,6 +41,8 @@ class AllianceOrderTable extends VmTable
     public $expired_order_date = '0000-00-00 00:00:00';
     public $transaction_type = null;
     public $original_authorized_amount = null;
+    public $currency_code = null;
+    public $conversion_rate = null;
 
     public function __construct(
         &$db,

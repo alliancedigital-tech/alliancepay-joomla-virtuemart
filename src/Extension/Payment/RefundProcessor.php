@@ -55,7 +55,55 @@ class RefundProcessor extends AbstractProcessor
         if (!empty($allianceOrderData['operation_id'])
             && (!empty($allianceOrderData['coin_amount']) || !empty($amount))
         ) {
-            $coinAmount = $amount ?? $allianceOrderData['coin_amount'];
+            $conversionRate = isset($allianceOrderData['conversion_rate'])
+                ? (float) $allianceOrderData['conversion_rate']
+                : 0.0;
+
+            if (!is_null($amount)) {
+                if ($conversionRate > 1.0) {
+                    $coinAmount = (int) round($amount * $conversionRate);
+                    Log::add(
+                        sprintf(
+                            'RefundProcessor: partial refund converted %d foreign coins × %.6f = %d UAH coins for order_id=%d.',
+                            $amount,
+                            $conversionRate,
+                            $coinAmount,
+                            $orderId
+                        ),
+                        Log::INFO,
+                        'alliance_payment'
+                    );
+                } else {
+                    $coinAmount = $amount;
+                }
+            } else {
+                $hppPayType = $allianceOrderData['hpp_pay_type'] ?? '';
+
+                if ($hppPayType === Config::HPP_PAY_TYPE_PREAUTH) {
+                    $coinAmount = $this->getCompletionCoinAmountFromCallbackData(
+                        $allianceOrderData['callback_data'] ?? ''
+                    ) ?? (int) $allianceOrderData['coin_amount'];
+                } else {
+                    $coinAmount = (int) $allianceOrderData['coin_amount'];
+                }
+
+                if ($conversionRate > 1.0) {
+                    $rawCoinAmount = $coinAmount;
+                    $coinAmount = (int) round($coinAmount * $conversionRate);
+                    Log::add(
+                        sprintf(
+                            'RefundProcessor: full refund converted %d foreign coins × %.6f = %d UAH coins for order_id=%d.',
+                            $rawCoinAmount,
+                            $conversionRate,
+                            $coinAmount,
+                            $orderId
+                        ),
+                        Log::INFO,
+                        'alliance_payment'
+                    );
+                }
+            }
+
             $params = !is_null($amount) ? ['partialRefund' => 1] : ['partialRefund' => 0];
             $refundData = $this->prepareRefundData(
                 $allianceOrderData['operation_id'],
@@ -106,6 +154,42 @@ class RefundProcessor extends AbstractProcessor
         $preparedData[self::REFUND_DATA_FIELD_NOTIFICATION_URL] = $callbackUrl;
 
         return $preparedData;
+    }
+
+    /**
+     * @param string $callbackDataJson
+     *
+     * @return int|null
+     *
+     * @since version
+     */
+    private function getCompletionCoinAmountFromCallbackData(string $callbackDataJson): ?int
+    {
+        if (empty($callbackDataJson)) {
+            return null;
+        }
+
+        $callbackData = json_decode($callbackDataJson, true);
+
+        if (!is_array($callbackData) || empty($callbackData['operations'])) {
+            return null;
+        }
+
+        $completionCoinAmount = null;
+
+        foreach ($callbackData['operations'] as $operation) {
+            $type   = $operation['type']   ?? '';
+            $status = $operation['status'] ?? '';
+
+            if ($type === Config::OPERATION_TYPE_COMPLETION && $status === 'SUCCESS') {
+                $amount = $operation['coinAmount'] ?? $operation['coin_amount'] ?? null;
+                if ($amount !== null) {
+                    $completionCoinAmount = (int) $amount;
+                }
+            }
+        }
+
+        return $completionCoinAmount;
     }
 
     private function checkIfSuccess(string $type, string $status): bool

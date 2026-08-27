@@ -77,8 +77,14 @@ class PaymentProcessor extends AbstractProcessor
                 $preparedData['order_id'] = $orderId;
 
                 if ($this->config->getPaymentType() === Config::HPP_PAY_TYPE_PREAUTH) {
-                    $coinAmount = $this->prepareCoinAmount((float) $order['details']['BT']->order_total);
-                    $preparedData['original_authorized_amount'] = $coinAmount;
+                    $btPa = $order['details']['BT'];
+                    $paCurrRate = (float)($btPa->user_currency_rate ?: 1.0);
+                    $paAmount = round((float)$btPa->order_total * $paCurrRate, 2);
+                    $preparedData['original_authorized_amount'] = $this->prepareCoinAmount($paAmount);
+                }
+
+                if (!empty($hppOrderData['currencyCode'])) {
+                    $preparedData['currency_code'] = (int) $hppOrderData['currencyCode'];
                 }
 
                 $this->allianceOrder->bindChecknStoreAllianceOrder($preparedData);
@@ -97,6 +103,20 @@ class PaymentProcessor extends AbstractProcessor
 
                 return $resultRequest;
             }
+        } catch (\RuntimeException $e) {
+            if (str_starts_with($e->getMessage(), 'unsupported_currency:')) {
+                $numericCode = substr($e->getMessage(), strlen('unsupported_currency:'));
+                Log::add(
+                    'AlliancePay: unsupported currency numeric code ' . $numericCode
+                    . '. Supported: UAH (980), USD (840), EUR (978).',
+                    Log::ERROR,
+                    'alliance_payment'
+                );
+
+                return ['error' => 'unsupported_currency'];
+            }
+
+            Log::add('Create order service error: ' . $e->getMessage(), Log::ERROR);
         } catch (Exception $e) {
             Log::add('Create order service error: ' . $e->getMessage(), Log::ERROR);
         }
@@ -152,9 +172,12 @@ class PaymentProcessor extends AbstractProcessor
      */
     private function preparePlaceOrderData($order): array
     {
-        $coinAmount = $this->prepareCoinAmount((float) $order['details']['BT']->order_total);
-        $langCode = explode('-', $order['details']['BT']->order_language)[0];
-        $orderId = $order['details']['BT']->virtuemart_order_id ?? 0;
+        $bt = $order['details']['BT'];
+        $userCurrRate = (float)($bt->user_currency_rate ?: 1.0);
+        $paymentAmount = round((float)$bt->order_total * $userCurrRate, 2);
+        $coinAmount = $this->prepareCoinAmount($paymentAmount);
+        $langCode = explode('-', $bt->order_language)[0];
+        $orderId = $bt->virtuemart_order_id ?? 0;
 
         $data = [
             'coinAmount' => $coinAmount,
@@ -177,6 +200,13 @@ class PaymentProcessor extends AbstractProcessor
 
         if ($data['hppPayType'] === Config::HPP_PAY_TYPE_PREAUTH) {
             $data['preAuthExpDate'] = $this->calculatePreAuthExpDate();
+        }
+
+        if (
+            $data['hppPayType'] === Config::HPP_PAY_TYPE_PURCHASE
+            || $data['hppPayType'] === Config::HPP_PAY_TYPE_PREAUTH
+        ) {
+            $data['currencyCode'] = $this->resolveCurrencyCode($order);
         }
 
         return $data;
@@ -256,6 +286,39 @@ class PaymentProcessor extends AbstractProcessor
         $data['senderIp'] = $bt->ip_address ?? '';
 
         return $this->validateCustomerData->validateAndClenUpData($data);
+    }
+
+    /**
+     * @param array $order  VirtueMart order array
+     *
+     * @return int  ISO 4217 numeric code
+     *
+     * @throws \RuntimeException  when the order currency is not supported
+     *
+     * @since version 1.4.0
+     */
+    private function resolveCurrencyCode(array $order): int
+    {
+        $bt = $order['details']['BT'];
+        $currencyId = (int) ($bt->user_currency_id ?: ($bt->order_currency ?? 0));
+
+        if ($currencyId > 0) {
+            $currencyModel = VmModel::getModel('currency');
+            $currency      = $currencyModel->getCurrency($currencyId);
+            $numericCode   = (int) ($currency->currency_numeric_code ?? 0);
+
+            if ($numericCode > 0) {
+                $currencyName = $this->config->getCurrencyNameByNumericCode($numericCode);
+
+                if ($currencyName !== null) {
+                    return $this->config->getCurrencyCode($currencyName);
+                }
+
+                throw new \RuntimeException('unsupported_currency:' . $numericCode);
+            }
+        }
+
+        return Config::CURRENCY_CODE_MAP['UAH'];
     }
 
     /**

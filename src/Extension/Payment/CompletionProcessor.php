@@ -106,10 +106,16 @@ class CompletionProcessor extends AbstractProcessor
             return ['success' => false, 'message' => 'Original authorized amount is not set.'];
         }
 
-        if (!$this->isAmountWithinTolerance($newCoinAmount, $originalAmount)) {
+        $conversionRate = isset($allianceOrderData['conversion_rate'])
+            ? (float) $allianceOrderData['conversion_rate']
+            : 0.0;
+
+        $coinAmountForApi = $newCoinAmount;
+
+        if (!$this->isAmountWithinTolerance($coinAmountForApi, $originalAmount)) {
             $message = sprintf(
-                'Completion amount %d is outside the allowed ±20%% range of original amount %d.',
-                $newCoinAmount,
+                'Completion amount %d UAH coins is outside the allowed ±20%% range of original amount %d UAH coins.',
+                $coinAmountForApi,
                 $originalAmount
             );
             Log::add('CompletionProcessor: ' . $message, Log::WARNING, 'alliance_payment');
@@ -129,7 +135,22 @@ class CompletionProcessor extends AbstractProcessor
             return ['success' => false, 'message' => 'Original operation ID is not set.'];
         }
 
-        $completionData = $this->prepareCompletionData($orderId, $operationId, $newCoinAmount);
+        if ($conversionRate > 0.0) {
+            $coinAmountForApi = (int) round($newCoinAmount * $conversionRate);
+            Log::add(
+                sprintf(
+                    'CompletionProcessor: converted %d foreign coins × %.6f = %d UAH coins for order_id=%d.',
+                    $newCoinAmount,
+                    $conversionRate,
+                    $coinAmountForApi,
+                    $orderId
+                ),
+                Log::INFO,
+                'alliance_payment'
+            );
+        }
+
+        $completionData = $this->prepareCompletionData($orderId, $operationId, $coinAmountForApi);
 
         try {
             $result = $this->httpClient->completion($completionData);

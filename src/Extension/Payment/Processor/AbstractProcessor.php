@@ -35,7 +35,7 @@ abstract class AbstractProcessor
     public function prepareCoinAmount(float $amount)
     {
         if (!empty($amount)) {
-            $amount = $amount * 100;
+            $amount = round($amount * 100);
         }
 
         return (int) $amount;

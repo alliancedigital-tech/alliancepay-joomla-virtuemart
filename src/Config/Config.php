@@ -18,6 +18,11 @@ class Config
     public const HPP_PAY_TYPE_PURCHASE = 'PURCHASE';
     public const HPP_PAY_TYPE_A2A = 'A2A';
     public const HPP_PAY_TYPE_PREAUTH = 'PREAUTH';
+    public const CURRENCY_CODE_MAP = [
+        'UAH' => 980,
+        'USD' => 840,
+        'EUR' => 978,
+    ];
     public const OPERATION_TYPE_A2A = 'ACCOUNT_2_ACCOUNT';
     public const DIRECT_TYPE_BANK_LINK = 'BANK_LINK';
     public const PRIORITY_BANK_CODE = 'ALL_BANKS';
@@ -313,6 +318,80 @@ class Config
     public function getCompletionTriggerStatus(): string
     {
         return $this->params[self::PAYMENT_COMPLETION_TRIGGER_STATUS_CONFIG_NAME] ?? '';
+    }
+
+    /**
+     * @param string $code
+     *
+     * @return int
+     *
+     * @since version 1.4.0
+     */
+    public function getCurrencyCode(string $code): int
+    {
+        if (!array_key_exists($code, self::CURRENCY_CODE_MAP)) {
+            throw new \InvalidArgumentException(
+                sprintf(
+                    'Currency "%s" is not supported by AlliancePay. Supported currencies: %s.',
+                    $code,
+                    implode(', ', array_keys(self::CURRENCY_CODE_MAP))
+                )
+            );
+        }
+
+        return self::CURRENCY_CODE_MAP[$code];
+    }
+
+    /**
+     * @param int $numericCode
+     *
+     * @return string|null
+     *
+     * @since version 1.4.0
+     */
+    public function getCurrencyNameByNumericCode(int $numericCode): ?string
+    {
+        $flipped = array_flip(self::CURRENCY_CODE_MAP);
+
+        return $flipped[$numericCode] ?? null;
+    }
+
+    /**
+     * @param int $vendorId  VirtueMart vendor ID (typically 1)
+     *
+     * @return bool
+     *
+     * @since version 1.4.0
+     */
+    public function hasNonUahAcceptedCurrency(int $vendorId = 1): bool
+    {
+        try {
+            $query = $this->db->getQuery(true)
+                ->select($this->db->quoteName('c.currency_numeric_code'))
+                ->from($this->db->quoteName('#__virtuemart_vendors', 'v'))
+                ->join(
+                    'INNER',
+                    $this->db->quoteName('#__virtuemart_currencies', 'c')
+                    . ' ON FIND_IN_SET('
+                    . $this->db->quoteName('c.virtuemart_currency_id')
+                    . ', ' . $this->db->quoteName('v.vendor_accepted_currencies') . ')'
+                )
+                ->where($this->db->quoteName('v.virtuemart_vendor_id') . ' = ' . (int) $vendorId)
+                ->where($this->db->quoteName('c.currency_numeric_code') . ' != 980');
+
+            $this->db->setQuery($query);
+            $rows = $this->db->loadColumn();
+
+            return !empty($rows);
+        } catch (\Throwable $e) {
+            Log::add(
+                'hasNonUahAcceptedCurrency: DB error: ' . $e->getMessage(),
+                Log::WARNING,
+                'alliance_payment'
+            );
+
+            return false;
+        }
     }
 
     /**
