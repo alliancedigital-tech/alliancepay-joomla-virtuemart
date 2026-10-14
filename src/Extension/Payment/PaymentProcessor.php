@@ -16,12 +16,18 @@ use Alliance\Plugin\Vmpayment\Alliancepay\Services\UpdateOrder\UpdateAllianceOrd
 use Alliance\Plugin\Vmpayment\Alliancepay\Services\Url\UrlProvider;
 use Alliance\Plugin\Vmpayment\Alliancepay\Extension\Payment\Processor\AbstractProcessor;
 use Alliance\Plugin\Vmpayment\Alliancepay\Services\ConvertData\ConvertDataService;
-use Alliance\Plugin\Vmpayment\Alliancepay\Services\Validation\ValidateCustomerData;
+use Alliance\Plugin\Vmpayment\Alliancepay\Services\Customer\CustomerDataBuilder;
+use Alliance\Plugin\Vmpayment\Alliancepay\Subscription\Callback\CallbackPayload;
+use Alliance\Plugin\Vmpayment\Alliancepay\Subscription\Callback\CallbackResult;
+use Alliance\Plugin\Vmpayment\Alliancepay\Subscription\Callback\SubscriptionCallbackHandler;
+use Alliance\Plugin\Vmpayment\Alliancepay\Subscription\Domain\Subscription;
+use Alliance\Plugin\Vmpayment\Alliancepay\Subscription\Repository\SubscriptionRepository;
 use DateTime;
 use DateTimeZone;
 use Exception;
 use GuzzleHttp\Exception\GuzzleException;
 use Joomla\CMS\Log\Log;
+use Throwable;
 use VmModel;
 
 /**
@@ -38,7 +44,9 @@ class PaymentProcessor extends AbstractProcessor
         private readonly AllianceOrderTable $allianceOrder,
         private readonly UpdateAllianceOrder $updateAllianceOrder,
         private readonly UrlProvider $urlProvider,
-        private readonly ValidateCustomerData $validateCustomerData,
+        private readonly CustomerDataBuilder $customerDataBuilder,
+        private readonly SubscriptionRepository $subscriptionRepository,
+        private readonly SubscriptionCallbackHandler $subscriptionCallbackHandler,
     ) {
         Log::addLogger(
             ['text_file' => 'plg_vmpayment_alliance.log.php'],
@@ -125,6 +133,11 @@ class PaymentProcessor extends AbstractProcessor
     }
 
     /**
+     * Manual "check order status" (admin order view, §4.9). A subscription order never has a row in
+     * jm_virtuemart_payment_plg_alliance_order — it lives entirely in
+     * jm_virtuemart_payment_plg_alliance_subscription instead (see SubscriptionOrderProcessor) — so it
+     * must be resolved and refreshed separately from a regular one-off order.
+     *
      * @param int $orderId
      *
      * @return bool
@@ -134,6 +147,12 @@ class PaymentProcessor extends AbstractProcessor
      */
     public function updateOrderData(int $orderId): bool
     {
+        $subscription = $this->subscriptionRepository->findByVirtuemartOrderId($orderId);
+
+        if ($subscription !== null) {
+            return $this->updateSubscriptionOrderData($subscription);
+        }
+
         $allianceOrder = $this->allianceOrder->load($orderId, 'order_id');
         $allianceOrderProperties = $allianceOrder->getProperties();
 
@@ -161,6 +180,150 @@ class PaymentProcessor extends AbstractProcessor
 
             return false;
         }
+    }
+
+    /**
+     * Re-fetches the provider's current state for a subscription order's HPP order id and applies it
+     * through the exact same, already-idempotent state machine a real webhook delivery goes through
+     * (SubscriptionCallbackHandler) — so a manual recheck can never disagree with what a callback would
+     * have done. HttpClient::getOrderOperations() returns the full envelope (hppOrderId, orderStatus,
+     * recurringTransactionType, scheduledPaymentId, operation(s), ...), which is exactly the shape
+     * CallbackPayload expects (§10.6 of the implementation spec).
+     *
+     * @throws GuzzleException
+     */
+    private function updateSubscriptionOrderData(Subscription $subscription): bool
+    {
+        if (empty($subscription->providerOrderId)) {
+            Log::add(
+                'Update order service error: subscription #' . $subscription->id . ' (order #'
+                . $subscription->virtuemartOrderId . ') has empty provider_order_id.',
+                Log::ERROR
+            );
+
+            return false;
+        }
+
+        $orderData = $this->httpClient->getOrderOperations($subscription->providerOrderId);
+
+        if (isset($orderData['msgType']) && !!$orderData['msgText']) {
+            Log::add($orderData['msgText'], Log::ERROR);
+
+            return false;
+        }
+
+        Log::add(
+            'Subscription refresh, provider response for ' . $subscription->providerOrderId . ': '
+            . json_encode($orderData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            Log::INFO,
+            'alliance_payment'
+        );
+
+        if (empty($orderData['hppOrderId'])) {
+            $orderData['hppOrderId'] = $subscription->providerOrderId;
+        }
+
+        $handled = false;
+        $newStatus = '';
+
+        try {
+            foreach ($this->splitIntoOperationPayloads($orderData) as $payload) {
+                $result = $this->subscriptionCallbackHandler->handle($payload);
+
+                if (!$result->handled) {
+                    continue;
+                }
+
+                $handled = true;
+                $status = match ($result->vmOrderStatus) {
+                    CallbackResult::ORDER_STATUS_SUCCESS => $this->config->getSuccessPaymentStatus(),
+                    CallbackResult::ORDER_STATUS_FAIL => $this->config->getFailPaymentStatus(),
+                    default => '',
+                };
+
+                if ($status !== '') {
+                    $newStatus = $status;
+                }
+            }
+        } catch (Throwable $exception) {
+            Log::add($exception->getMessage(), Log::ERROR);
+
+            return false;
+        }
+
+        if (!$handled) {
+            // Nothing the provider returned changed the subscription's state — not an error.
+            return true;
+        }
+
+        if ($newStatus !== '') {
+            VmModel::getModel('orders')->updateStatusForOneOrder(
+                $subscription->virtuemartOrderId,
+                ['order_status' => $newStatus],
+                true
+            );
+        }
+
+        return true;
+    }
+
+    /**
+     * The operations endpoint returns the whole history in one envelope, while the callback state machine
+     * applies a single operation per payload. Replays every operation (oldest first) as its own payload.
+     * The first operation is the initial payment; later ones without their own markers are recurring.
+     *
+     * @param array $orderData
+     * @return CallbackPayload[]
+     */
+    private function splitIntoOperationPayloads(array $orderData): array
+    {
+        $operations = [];
+
+        if (isset($orderData['operations']) && is_array($orderData['operations'])) {
+            $operations = array_values(array_filter($orderData['operations'], 'is_array'));
+        } elseif (isset($orderData['operation']) && is_array($orderData['operation'])) {
+            $operations = [$orderData['operation']];
+        }
+
+        if ($operations === []) {
+            return [CallbackPayload::fromArray($orderData)];
+        }
+
+        usort(
+            $operations,
+            static fn (array $a, array $b): int => strcmp(
+                (string) ($a['creationDateTime'] ?? ''),
+                (string) ($b['creationDateTime'] ?? '')
+            )
+        );
+
+        $envelope = $orderData;
+        unset($envelope['operations'], $envelope['operation']);
+
+        $payloads = [];
+
+        foreach ($operations as $index => $operation) {
+            $data = $envelope;
+
+            foreach (['scheduledPaymentId', 'recurringTransactionType', 'paymentNumber'] as $field) {
+                if (isset($operation[$field])) {
+                    $data[$field] = $operation[$field];
+                }
+            }
+
+            if ($index > 0 && !isset($operation['recurringTransactionType']) && !isset($operation['scheduledPaymentId'])) {
+                $data['recurringTransactionType'] = 'RECURRING';
+            }
+
+            if ($index === 0 && !isset($operation['scheduledPaymentId'])) {
+                unset($data['scheduledPaymentId']);
+            }
+
+            $data['operation'] = $operation;
+            $payloads[] = CallbackPayload::fromArray($data);
+        }
+
+        return $payloads;
     }
 
     /**
@@ -259,33 +422,7 @@ class PaymentProcessor extends AbstractProcessor
      */
     private function prepareCustomerData($order): array
     {
-        $data = [];
-
-        if (empty($order['details']['BT'])) {
-            return $data;
-        }
-
-        $data['senderCustomerId'] = $order['details']['BT']->customer_number;
-        $bt = $order['details']['BT'];
-        $countryModel = VmModel::getModel('country');
-        $stateModel = VmModel::getModel('state');
-        $country = $countryModel->getData($bt->virtuemart_country_id);
-        $state = $stateModel->getData($bt->virtuemart_state_id);
-
-        $data['senderEmail'] = $bt->email ?? '';
-        $data['senderFirstName'] = $bt->first_name ?? '';
-        $data['senderLastName'] = $bt->last_name ?? '';
-        $data['senderMiddleName'] = $bt->middle_name ?? '';
-        $data['senderPhone'] = $bt->phone_1 ?: ($bt->phone_2 ?: '');
-        $data['senderCity'] = $bt->city ?? '';
-        $data['senderZipCode'] = $bt->zip ?? '';
-        $data['senderStreet'] = $bt->address_1 ?? '';
-        $data['senderAdditionalAddress'] = $bt->address_2 ?? '';
-        $data['senderCountry'] = $country->country_num_code ?? '';
-        $data['senderRegion'] = $state->state_name ?? '';
-        $data['senderIp'] = $bt->ip_address ?? '';
-
-        return $this->validateCustomerData->validateAndClenUpData($data);
+        return $this->customerDataBuilder->build($order);
     }
 
     /**

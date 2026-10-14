@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<extension type="plugin" group="task" method="upgrade">
+    <name>plg_task_alliancepay</name>
+    <author>Alliance Dgtl.</author>
+    <creationDate>2026-09-25</creationDate>
+    <license>GNU General Public License version 2 or later</license>
+    <version>1.5.0</version>
+    <description>PLG_TASK_ALLIANCEPAY_XML_DESCRIPTION</description>
+    <namespace path="src">Alliance\Plugin\Task\Alliancepay</namespace>
+    <files>
+        <folder plugin="alliancepay">services</folder>
+        <folder>src</folder>
+        <folder>language</folder>
+    </files>
+    <languages>
+        <language tag="en-GB">language/en-GB/plg_task_alliancepay.ini</language>
+        <language tag="en-GB">language/en-GB/plg_task_alliancepay.sys.ini</language>
+        <language tag="uk-UA">language/uk-UA/plg_task_alliancepay.ini</language>
+        <language tag="uk-UA">language/uk-UA/plg_task_alliancepay.sys.ini</language>
+    </languages>
+</extension>

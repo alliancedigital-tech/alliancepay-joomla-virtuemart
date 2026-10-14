@@ -1,24 +1,58 @@
-name: Create Release Archive
+name: Build and Release Package
 on:
   push:
-    tags:
-      - 'v*'
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-      - name: Install dependencies
-        run: composer install --no-dev --optimize-autoloader
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+          tools: composer:v2
 
-      - name: Create ZIP
-        run: zip -r alliancepay-joomla-5-virtuemart-${{ github.ref_name }}.zip . -x ".git*" ".github*"
+      - name: Verify tag matches package version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          VERSION=$(sed -n 's:.*<version>\(.*\)</version>.*:\1:p' package/pkg_alliancepay.xml | head -1)
+          [ "v$VERSION" = "${{ github.ref_name }}" ] || { echo "Tag ${{ github.ref_name }} != package version $VERSION"; exit 1; }
+
+      - name: Build package
+        run: |
+          set -euo pipefail
+          PKG=package
+          DIST="$PWD/$PKG/dist"
+          BUILD="$(mktemp -d)"
+          VERSION=$(sed -n 's:.*<version>\(.*\)</version>.*:\1:p' $PKG/pkg_alliancepay.xml | head -1)
+          mkdir -p "$DIST" "$BUILD/pkg" "$BUILD/vm"
+
+          # vmpayment plugin (repo root) with production dependencies
+          composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction
+          cp -R alliancepay.xml index.html services src sql tmpl vendor language "$BUILD/vm/"
+          (cd "$BUILD/vm" && zip -qr "$BUILD/pkg/plg_vmpayment_alliancepay.zip" .)
+
+          # other extensions
+          (cd $PKG/plugins/vmcustom/alliancepay_subscription && zip -qr "$BUILD/pkg/plg_vmcustom_alliancepay_subscription.zip" . -x '.DS_Store')
+          (cd $PKG/plugins/task/alliancepay && zip -qr "$BUILD/pkg/plg_task_alliancepay.zip" . -x '.DS_Store')
+          (cd $PKG/component && zip -qr "$BUILD/pkg/com_alliancepay.zip" . -x '.DS_Store')
+
+          cp $PKG/pkg_alliancepay.xml "$BUILD/pkg/"
+          (cd "$BUILD/pkg" && zip -qr "$DIST/pkg_alliancepay-$VERSION.zip" .)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg_alliancepay
+          path: package/dist/pkg_alliancepay-*.zip
 
       - name: Release
-        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
         with:
-          files: alliancepay-joomla-5-virtuemart-${{ github.ref_name }}.zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          files: package/dist/pkg_alliancepay-*.zip

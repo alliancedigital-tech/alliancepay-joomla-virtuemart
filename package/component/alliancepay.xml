@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<extension type="component" method="upgrade">
+    <name>com_alliancepay</name>
+    <author>Alliance Dgtl.</author>
+    <creationDate>2026-09-25</creationDate>
+    <license>GNU General Public License v2 or later</license>
+    <version>1.5.0</version>
+    <description>COM_ALLIANCEPAY_XML_DESCRIPTION</description>
+    <namespace path="src">Alliance\Component\Alliancepay</namespace>
+    <files folder="site">
+        <folder>language</folder>
+        <folder>services</folder>
+        <folder>src</folder>
+        <folder>tmpl</folder>
+    </files>
+    <administration>
+        <menu img="class:shopping-cart">COM_ALLIANCEPAY</menu>
+        <submenu>
+            <menu link="option=com_alliancepay&amp;view=plans">COM_ALLIANCEPAY_MENU_PLANS</menu>
+            <menu link="option=com_alliancepay&amp;view=templates">COM_ALLIANCEPAY_MENU_TEMPLATES</menu>
+            <menu link="option=com_alliancepay&amp;view=subscriptions">COM_ALLIANCEPAY_MENU_SUBSCRIPTIONS</menu>
+            <menu link="option=com_alliancepay&amp;view=audit">COM_ALLIANCEPAY_MENU_AUDIT</menu>
+        </submenu>
+        <files folder="admin">
+            <filename>access.xml</filename>
+            <folder>language</folder>
+            <folder>services</folder>
+            <folder>src</folder>
+            <folder>tmpl</folder>
+        </files>
+    </administration>
+</extension>

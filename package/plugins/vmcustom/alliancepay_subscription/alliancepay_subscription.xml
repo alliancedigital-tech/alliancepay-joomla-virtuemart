@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<extension method="upgrade" version="5.0" type="plugin" group="vmcustom">
+    <name>VMCustom - AlliancePay Subscription</name>
+    <creationDate>2026-09-25</creationDate>
+    <author>Alliance Dgtl.</author>
+    <license>GNU General Public License v2 or later</license>
+    <version>1.5.0</version>
+    <description>PLG_VMCUSTOM_ALLIANCEPAY_SUBSCRIPTION_DESC</description>
+    <files>
+        <filename plugin="alliancepay_subscription">alliancepay_subscription.php</filename>
+        <folder>alliancepay_subscription</folder>
+        <folder>language</folder>
+    </files>
+    <languages>
+        <language tag="en-GB">language/en-GB/en-GB.plg_vmcustom_alliancepay_subscription.ini</language>
+        <language tag="en-GB">language/en-GB/en-GB.plg_vmcustom_alliancepay_subscription.sys.ini</language>
+        <language tag="uk-UA">language/uk-UA/uk-UA.plg_vmcustom_alliancepay_subscription.ini</language>
+        <language tag="uk-UA">language/uk-UA/uk-UA.plg_vmcustom_alliancepay_subscription.sys.ini</language>
+    </languages>
+    <vmconfig>
+        <fields name="params">
+            <fieldset name="template">
+                <field name="show_plan_details" type="list" default="1"
+                       label="PLG_VMCUSTOM_ALLIANCEPAY_SUBSCRIPTION_SHOW_PLAN_DETAILS">
+                    <option value="0">JNO</option>
+                    <option value="1">JYES</option>
+                </field>
+            </fieldset>
+        </fields>
+    </vmconfig>
+</extension>

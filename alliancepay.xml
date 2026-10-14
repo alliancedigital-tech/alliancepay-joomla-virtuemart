@@ -2,9 +2,9 @@
 <extension type="plugin" group="vmpayment" version="5.0" method="upgrade">
     <name>VM - AlliancePay</name>
     <author>Alliance Dgtl.</author>
-    <creationDate>2026-01-12</creationDate>
+    <creationDate>2026-09-25</creationDate>
     <license>GNU General Public License v2 or later</license>
-    <version>1.4.0</version>
+    <version>1.5.0</version>
     <description>Alliance Payment Gateway for VirtueMart</description>
     <namespace path="src">Alliance\Plugin\Vmpayment\Alliancepay</namespace>
     <element>alliancepay</element>
@@ -36,7 +36,7 @@
         <language tag="uk-UA">language/uk-UA/uk-UA.plg_vmpayment_alliancepay.ini</language>
     </languages>
     <vmconfig>
-        <fields name="params" addfieldprefix="Alliance\Plugin\Vmpayment\Alliancepay\Field">
+        <fields name="params">
             <fieldset name="basic" label="VMPAYMENT_ALLIANCEPAY_BASIC">
                 <field
                     name="status_page_type"
@@ -86,13 +86,6 @@
                     required="true"
                 />
                 <field
-                    name="service_code"
-                    type="text"
-                    label="VMPAYMENT_ALLIANCEPAY_SERVICE_CODE"
-                    description="VMPAYMENT_ALLIANCEPAY_SERVICE_CODE_DESC"
-                    required="true"
-                />
-                <field
                     name="merchant_id"
                     type="text"
                     label="VMPAYMENT_ALLIANCEPAY_MERCHANT_ID"
@@ -106,6 +99,22 @@
                     description="VMPAYMENT_ALLIANCEPAY_AUTH_KEY_DESC"
                     rows="5"
                     cols="50"
+                    required="true"
+                />
+                <field
+                    name="jws_private_key"
+                    type="textarea"
+                    label="VMPAYMENT_ALLIANCEPAY_JWS_PRIVATE_KEY"
+                    description="VMPAYMENT_ALLIANCEPAY_JWS_PRIVATE_KEY_DESC"
+                    rows="8"
+                    cols="50"
+                    required="true"
+                />
+                <field
+                    name="jws_key_id"
+                    type="text"
+                    label="VMPAYMENT_ALLIANCEPAY_JWS_KEY_ID"
+                    description="VMPAYMENT_ALLIANCEPAY_JWS_KEY_ID_DESC"
                     required="true"
                 />
             </fieldset>
@@ -148,13 +157,45 @@
                     description="VMPAYMENT_ALLIANCEPAY_STATUS_COMPLETION_TRIGGER_DESC"
                 />
             </fieldset>
-            <fieldset name="authorization" label="VMPAYMENT_ALLIANCEPAY_AUTHORIZATION">
+            <fieldset name="subscriptions" label="VMPAYMENT_ALLIANCEPAY_SUBSCRIPTIONS">
                 <field
-                    name="auth_trigger"
-                    type="AllianceAuth"
-                    label="VMPAYMENT_ALLIANCEPAY_AUTH_LABEL"
-                    description="VMPAYMENT_ALLIANCEPAY_AUTH_DESC"
+                    name="subscriptions_enabled"
+                    type="radio"
+                    default="0"
+                    layout="joomla.form.field.radio.switcher"
+                    label="VMPAYMENT_ALLIANCEPAY_SUBSCRIPTIONS_ENABLED"
+                    description="VMPAYMENT_ALLIANCEPAY_SUBSCRIPTIONS_ENABLED_DESC">
+                    <option value="0">JNO</option>
+                    <option value="1">JYES</option>
+                </field>
+                <field
+                    name="subscription_reprice_min_days"
+                    type="number"
+                    default="30"
+                    min="1"
+                    step="1"
+                    label="VMPAYMENT_ALLIANCEPAY_SUBSCRIPTION_REPRICE_MIN_DAYS"
+                    description="VMPAYMENT_ALLIANCEPAY_SUBSCRIPTION_REPRICE_MIN_DAYS_DESC"
                 />
+                <field
+                    name="subscription_content_type"
+                    type="list"
+                    default="application/jwt"
+                    label="VMPAYMENT_ALLIANCEPAY_SUBSCRIPTION_CONTENT_TYPE"
+                    description="VMPAYMENT_ALLIANCEPAY_SUBSCRIPTION_CONTENT_TYPE_DESC">
+                    <option value="application/jwt">application/jwt</option>
+                    <option value="application/jws">application/jws</option>
+                </field>
+                <field
+                    name="subscription_send_api_version"
+                    type="radio"
+                    default="0"
+                    layout="joomla.form.field.radio.switcher"
+                    label="VMPAYMENT_ALLIANCEPAY_SUBSCRIPTION_SEND_API_VERSION"
+                    description="VMPAYMENT_ALLIANCEPAY_SUBSCRIPTION_SEND_API_VERSION_DESC">
+                    <option value="0">JNO</option>
+                    <option value="1">JYES</option>
+                </field>
             </fieldset>
         </fields>
     </vmconfig>

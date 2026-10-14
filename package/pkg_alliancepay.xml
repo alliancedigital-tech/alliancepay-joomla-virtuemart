@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<extension type="package" method="upgrade">
+    <name>AlliancePay for VirtueMart (payments and subscriptions)</name>
+    <packagename>alliancepay</packagename>
+    <author>Alliance Dgtl.</author>
+    <creationDate>2026-09-25</creationDate>
+    <version>1.5.0</version>
+    <license>GNU General Public License v2 or later</license>
+    <description>AlliancePay payment plugin for VirtueMart together with the subscriptions module: vmcustom plugin, admin/site component and a scheduled task.</description>
+    <files>
+        <file type="plugin" id="alliancepay" group="vmpayment">plg_vmpayment_alliancepay.zip</file>
+        <file type="plugin" id="alliancepay_subscription" group="vmcustom">plg_vmcustom_alliancepay_subscription.zip</file>
+        <file type="plugin" id="alliancepay" group="task">plg_task_alliancepay.zip</file>
+        <file type="component" id="com_alliancepay">com_alliancepay.zip</file>
+    </files>
+</extension>

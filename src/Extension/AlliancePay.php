@@ -14,21 +14,33 @@ use Alliance\Plugin\Vmpayment\Alliancepay\Extension\Payment\CompletionProcessor;
 use Alliance\Plugin\Vmpayment\Alliancepay\Extension\Payment\PaymentProcessor;
 use Alliance\Plugin\Vmpayment\Alliancepay\Extension\Payment\RefundProcessor;
 use Alliance\Plugin\Vmpayment\Alliancepay\Services\Callback\CallbackProcessor;
+use Alliance\Plugin\Vmpayment\Alliancepay\Subscription\Callback\CallbackPayload;
+use Alliance\Plugin\Vmpayment\Alliancepay\Subscription\Callback\CallbackResult;
+use Alliance\Plugin\Vmpayment\Alliancepay\Subscription\Callback\SubscriptionCallbackHandler;
+use Alliance\Plugin\Vmpayment\Alliancepay\Subscription\Checkout\CartInspection;
+use Alliance\Plugin\Vmpayment\Alliancepay\Subscription\Checkout\CheckoutGuard;
+use Alliance\Plugin\Vmpayment\Alliancepay\Subscription\Domain\Subscription;
+use Alliance\Plugin\Vmpayment\Alliancepay\Subscription\Repository\ScheduledPaymentRepository;
+use Alliance\Plugin\Vmpayment\Alliancepay\Subscription\Repository\SubscriptionRepository;
+use Alliance\Plugin\Vmpayment\Alliancepay\Subscription\Service\SubscriptionCancelService;
+use Alliance\Plugin\Vmpayment\Alliancepay\Subscription\Service\SubscriptionOrderProcessor;
 use CurrencyDisplay;
 use Exception;
 use Joomla\CMS\Factory;
 use Joomla\CMS\Log\Log;
+use Joomla\CMS\Router\Route;
+use Joomla\CMS\Session\Session;
 use Joomla\Database\DatabaseInterface;
 use Joomla\DI\Container;
 use JUri;
 use shopFunctionsF;
 use stdClass;
+use Throwable;
 use VirtueMartCart;
-use VirtueMartModelOrders;
 use VmConfig;
 use VmModel;
 use vmPSPlugin;
-use Alliance\Plugin\Vmpayment\Alliancepay\Services\Authorization\AuthorizationService;
+use Alliance\Plugin\Vmpayment\Alliancepay\Services\Jws\JwsVerifier;
 use Joomla\CMS\Language\Text;
 use vRequest;
 
@@ -47,7 +59,7 @@ class AlliancePay extends vmPSPlugin
 
     private const ACTION_CALLBACK = 'callback';
 
-    private const ACTION_AUTHORIZATION = 'authorization';
+    private const SELF_CALL_CANCEL_SUBSCRIPTION = 'cancelSubscription';
 
     public function __construct(
         private readonly PaymentProcessor $paymentProcessor,
@@ -56,8 +68,14 @@ class AlliancePay extends vmPSPlugin
         private readonly Config $allianceConfig,
         private readonly AllianceOrderTable $allianceOrderTable,
         private readonly AllianceRefundTable $allianceRefundTable,
-        private readonly AuthorizationService $authorizationService,
+        private readonly JwsVerifier $jwsVerifier,
         private readonly CompletionProcessor $completionProcessor,
+        private readonly SubscriptionCallbackHandler $subscriptionCallbackHandler,
+        private readonly SubscriptionOrderProcessor $subscriptionOrderProcessor,
+        private readonly CheckoutGuard $checkoutGuard,
+        private readonly SubscriptionCancelService $subscriptionCancelService,
+        private readonly SubscriptionRepository $subscriptionRepository,
+        private readonly ScheduledPaymentRepository $scheduledPaymentRepository,
         $subject,
         $config = []
     ) {
@@ -88,7 +106,11 @@ class AlliancePay extends vmPSPlugin
         $orderId = $input->getInt('onme');
         $action = $input->get('action');
         $isPartialRefund = $input->getBool('partialRefund', false);
-        $data = json_decode(file_get_contents('php://input'), true);
+        [$data, $isSignatureVerified] = $this->readCallbackPayload();
+
+        if (!is_null($data) && $this->processSubscriptionCallback($data, $isSignatureVerified)) {
+            $this->finishCallbackResponse();
+        }
 
         if (!is_null($data) && $action == self::ACTION_CALLBACK && $orderId) {
             $this->callbackProcessor->processCallback($orderId, $data);
@@ -144,7 +166,33 @@ class AlliancePay extends vmPSPlugin
             }
         }
 
+        if ($action == self::ACTION_CALLBACK) {
+            $this->finishCallbackResponse();
+        }
+
         return null;
+    }
+
+    /**
+     * Ends the request with an empty body so VirtueMart does not render the site page into the bank's callback
+     * response. Keeps any status code already set (403/500 from the subscription handler), otherwise 200.
+     *
+     * @return never
+     *
+     * @throws Exception
+     * @since version 1.5.0
+     */
+    private function finishCallbackResponse(): never
+    {
+        $statusCode = http_response_code() ?: 200;
+
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+
+        http_response_code($statusCode);
+        Factory::getApplication()->close();
+        exit;
     }
 
     /**
@@ -330,6 +378,10 @@ class AlliancePay extends vmPSPlugin
             return false;
         }
 
+        if ($this->subscriptionOrderProcessor->isSubscriptionOrder($order)) {
+            return $this->confirmSubscriptionOrder($order);
+        }
+
         $orderResult = $this->paymentProcessor->processPayment($order);
 
         if (($orderResult['error'] ?? '') === 'unsupported_currency') {
@@ -364,7 +416,6 @@ class AlliancePay extends vmPSPlugin
         $app = Factory::getApplication();
         $input = $app->input;
         $task = $input->get('task');
-        $action = $input->get('action');
         $orderId = $input->getInt('onme');
         $amount = $input->getFloat('amount');
         $request = vRequest::getRequest();
@@ -464,25 +515,164 @@ class AlliancePay extends vmPSPlugin
             $this->sendAjaxResponse($response);
         }
 
-        if ($action === self::ACTION_AUTHORIZATION) {
-            $serviceCode = $this->allianceConfig->getServiceCode();
+        return true;
+    }
 
-            if (empty($serviceCode)) {
-                return false;
+    /**
+     * Reads the callback body.
+     *
+     * @return array{0: ?array, 1: bool} the decoded payload and whether its signature was verified.
+     *     A payload that is not a signed token is still returned (legacy behaviour for one-off payments)
+     *     but flagged as unverified; subscription handling never accepts such a payload.
+     *
+     * @since version 1.5.0
+     */
+    private function readCallbackPayload(): array
+    {
+        $raw = file_get_contents('php://input');
+
+        Log::add(
+            'Webhook JWS raw data handler: ' . print_r($raw, true),
+            Log::INFO,
+            'alliance_payment'
+        );
+
+        $trimmed = trim((string) $raw);
+        $isToken = $trimmed !== '' && !str_contains($trimmed, ' ');
+
+        if ($isToken && substr_count($trimmed, '.') === 2) {
+            try {
+                return [$this->jwsVerifier->verify($trimmed), true];
+            } catch (Throwable $e) {
+                Log::add(
+                    'Webhook JWS verification failed: ' . $e->getMessage(),
+                    Log::ERROR,
+                    'alliance_payment'
+                );
+
+                return [null, false];
+            }
+        }
+
+        $data = json_decode($raw, true);
+
+        Log::add(
+            'Webhook JWS data handler: ' . print_r($data, true),
+            Log::INFO,
+            'alliance_payment'
+        );
+
+        return [is_array($data) ? $data : null, false];
+    }
+
+    /**
+     * Handles a callback that belongs to a subscription.
+     *
+     * @param array $data
+     * @param bool $isSignatureVerified
+     *
+     * @return bool true when the delivery belongs to a subscription and must not go through the legacy flow
+     *
+     * @since version 1.5.0
+     */
+    private function processSubscriptionCallback(array $data, bool $isSignatureVerified): bool
+    {
+        $payload = CallbackPayload::fromArray($data);
+        $hppOrderId = $payload->getHppOrderId();
+
+        if ($hppOrderId === '') {
+            return false;
+        }
+
+        try {
+            if (!$isSignatureVerified) {
+                // The lookup only decides how strict to be; nothing from an unsigned body is ever applied.
+                if ($this->subscriptionRepository->findByProviderOrderId($hppOrderId) === null) {
+                    return false;
+                }
+
+                Log::add(
+                    'Unsigned callback for a subscription order rejected (hppOrderId=' . $hppOrderId . ')',
+                    Log::ERROR,
+                    'alliance_payment'
+                );
+                http_response_code(403);
+
+                return true;
             }
 
-            $result = $this->authorizationService->authorize($serviceCode);
+            $result = $this->subscriptionCallbackHandler->handle($payload);
+        } catch (Throwable $e) {
+            Log::add('Subscription callback error: ' . $e->getMessage(), Log::ERROR, 'alliance_payment');
+            // Non-2xx lets the provider redeliver; the handler is idempotent, so that is safe.
+            http_response_code(500);
 
-            if (!empty($result)) {
-                $response = json_encode(['success' => true , 'message' => 'Authorization successfully!']);
-            } else {
-                $response = json_encode(['success' => false, 'message' => 'Authorization failed!']);
-            }
+            return true;
+        }
 
-            $this->sendAjaxResponse($response);
+        if (!$result->handled) {
+            return false;
+        }
+
+        $newStatus = match ($result->vmOrderStatus) {
+            CallbackResult::ORDER_STATUS_SUCCESS => $this->allianceConfig->getSuccessPaymentStatus(),
+            CallbackResult::ORDER_STATUS_FAIL => $this->allianceConfig->getFailPaymentStatus(),
+            default => '',
+        };
+
+        if ($newStatus !== '') {
+            VmModel::getModel('orders')->updateStatusForOneOrder(
+                $result->subscription->virtuemartOrderId,
+                ['order_status' => $newStatus],
+                true
+            );
         }
 
         return true;
+    }
+
+    /**
+     *
+     * @return array|null
+     *
+     * @since version 1.5.0
+     */
+    private function readCallbackData(): ?array
+    {
+        $raw = file_get_contents('php://input');
+
+        Log::add(
+            'Webhook JWS raw data handler: ' . print_r($raw, true),
+            Log::INFO,
+            'alliance_payment'
+        );
+
+        $trimmed = trim((string) $raw);
+        $isToken = $trimmed !== '' && !str_contains($trimmed, ' ');
+
+        if ($isToken && substr_count($trimmed, '.') === 2) {
+            try {
+                return $this->jwsVerifier->verify($trimmed);
+            } catch (Throwable $e) {
+                Log::add(
+                    'Webhook JWS verification failed: ' . $e->getMessage(),
+                    Log::ERROR,
+                    'alliance_payment'
+                );
+
+                return null;
+            }
+        }
+
+        $data = json_decode($raw, true);
+
+        Log::add(
+            'Webhook JWS data handler: ' . print_r($data, true),
+            Log::INFO,
+            'alliance_payment'
+        );
+
+        return is_array($data) ? $data : null;
     }
 
     /**
@@ -510,6 +700,16 @@ class AlliancePay extends vmPSPlugin
      */
     public function plgVmOnShowOrderBEPayment(int $orderId, string $payment): string
     {
+        // A subscription order has no row in jm_virtuemart_payment_plg_alliance_order — it lives
+        // entirely in jm_virtuemart_payment_plg_alliance_subscription instead (see
+        // SubscriptionOrderProcessor) — so it must be shown from that data, not the one-off table
+        // (which load() would just leave empty, showing "no transactions" for every subscription).
+        $subscription = $this->subscriptionRepository->findByVirtuemartOrderId($orderId);
+
+        if ($subscription !== null) {
+            return $this->showSubscriptionOrderBE($subscription);
+        }
+
         $allianceOrder = $this->allianceOrderTable->load($orderId, 'order_id');
         $callbackData = json_decode($allianceOrder->callback_data, true);
         $operations = $callbackData['operations'] ?? [];
@@ -586,6 +786,125 @@ class AlliancePay extends vmPSPlugin
         $html .= $this->renderByLayout('refund_form', (array)$viewData);
 
         return $html;
+    }
+
+    /**
+     * Backend order-view "transactions history" for a subscription order, from LOCAL data only
+     * (jm_virtuemart_payment_plg_alliance_scheduled_payment) — same as the one-off branch above,
+     * which never calls the provider on page render either; fresh data is pulled in via the
+     * "Check order status" button (checkAllianceOrderStatus() below -> PaymentProcessor::
+     * updateOrderData(), fixed to handle subscriptions too) or real webhooks, both of which already
+     * write through ScheduledPaymentRepository via SubscriptionCallbackHandler.
+     *
+     * Only the "Check order status" block of refund_form.php is reused (via check_status_form.php),
+     * never the partial/full refund UI: refunds there are a one-off-order concept keyed off
+     * AllianceOrderTable's transaction_type/hpp_pay_type, which a subscription order never has, and
+     * RefundProcessor does not know about subscriptions either; subscriptions are cancelled instead
+     * (see plgVmOnShowOrderFEPayment / SubscriptionCancelService).
+     */
+    private function showSubscriptionOrderBE(Subscription $subscription): string
+    {
+        $payments = $this->scheduledPaymentRepository->findBySubscription($subscription->id);
+        $paymentsByOperation = [];
+
+        foreach ($payments as $payment) {
+            if (!empty($payment['operation_id'])) {
+                $paymentsByOperation[$payment['operation_id']] = $payment;
+            }
+        }
+
+        $transactions = [];
+        $listedOperations = [];
+
+        // Every operation the provider has reported (payments, retries, refunds), accumulated from callbacks
+        // and from the "Check order status" refresh.
+        foreach ($subscription->callbackData['operations'] ?? [] as $operation) {
+            $operationId = (string) ($operation['operationId'] ?? '');
+            $payment = $paymentsByOperation[$operationId] ?? null;
+            $listedOperations[$operationId] = true;
+
+            $type = (string) ($operation['type'] ?? '');
+            $number = $payment['payment_number'] ?? null;
+            $label = $type !== '' ? $type : 'PAYMENT';
+
+            if ($number !== null) {
+                $label .= ' (#' . $number . ')';
+            }
+
+            $transactions[] = [
+                'type' => $label,
+                'operationId' => $operationId,
+                'status' => (string) ($operation['status'] ?? $payment['status'] ?? ''),
+                'creationDateTime' => (string) ($operation['creationDateTime'] ?? $payment['executed_at'] ?? ''),
+                'priceUAH' => round(((int) ($operation['coinAmount'] ?? $payment['coin_amount'] ?? 0)) / 100, 2),
+                'priceUSD' => null,
+                'priceEUR' => null,
+                'note' => $this->buildPaymentNote($payment),
+            ];
+        }
+
+        // Local rows with no operation yet (scheduled/waiting) or stored before operations were accumulated.
+        foreach ($payments as $payment) {
+            $operationId = (string) ($payment['operation_id'] ?? '');
+
+            if ($operationId !== '' && isset($listedOperations[$operationId])) {
+                continue;
+            }
+
+            $transactions[] = [
+                'type' => Text::sprintf('VMPAYMENT_ALLIANCE_CB_PAYMENT_NUMBER', $payment['payment_number'] ?? '?'),
+                'operationId' => $operationId,
+                'status' => (string) $payment['status'],
+                'creationDateTime' => (string) ($payment['executed_at'] ?? $payment['scheduled_date'] ?? ''),
+                'priceUAH' => round(((int) ($payment['coin_amount'] ?? 0)) / 100, 2),
+                'priceUSD' => null,
+                'priceEUR' => null,
+                'note' => $this->buildPaymentNote($payment),
+            ];
+        }
+
+        $html = $this->renderByLayout('callback_info', [
+            'transactions' => $transactions,
+            'hppOrderId' => (string) $subscription->providerOrderId,
+            'subscriptionStatus' => $subscription->status->value,
+        ]);
+
+        $html .= $this->renderByLayout('check_status_form', [
+            'order_id' => $subscription->virtuemartOrderId,
+        ]);
+
+        return $html;
+    }
+
+    /**
+     * @param array|null $payment
+     * @return string
+     */
+    private function buildPaymentNote(?array $payment): string
+    {
+        if ($payment === null) {
+            return '';
+        }
+
+        $parts = [];
+
+        if (!empty($payment['scheduled_payment_id'])) {
+            $parts[] = Text::sprintf('VMPAYMENT_ALLIANCE_CB_SCHEDULED_ID', $payment['scheduled_payment_id']);
+        }
+
+        if (!empty($payment['scheduled_date'])) {
+            $parts[] = Text::sprintf('VMPAYMENT_ALLIANCE_CB_SCHEDULED_FOR', $payment['scheduled_date']);
+        }
+
+        if (!empty($payment['retry_count'])) {
+            $parts[] = Text::sprintf('VMPAYMENT_ALLIANCE_CB_RETRIES', (int) $payment['retry_count']);
+        }
+
+        if (!empty($payment['needs_review'])) {
+            $parts[] = Text::sprintf('VMPAYMENT_ALLIANCE_CB_NEEDS_REVIEW', $payment['review_note'] ?? '');
+        }
+
+        return implode(' | ', $parts);
     }
 
     /**
@@ -687,6 +1006,159 @@ class AlliancePay extends vmPSPlugin
                 );
             }
         }
+
+        return true;
+    }
+
+    /**
+     * Starts a subscription checkout: provider subscription order + redirect to the Hosted Payment Page.
+     *
+     * @param array $order
+     *
+     * @return bool
+     *
+     * @throws Exception
+     * @since version 1.5.0
+     */
+    private function confirmSubscriptionOrder(array $order): bool
+    {
+        $app = Factory::getApplication();
+        $result = $this->subscriptionOrderProcessor->process($order);
+
+        if (!empty($result['redirectUrl'])) {
+            $app->redirect($result['redirectUrl']);
+
+            return true;
+        }
+
+        $error = (string) ($result['error'] ?? '');
+        $message = !empty($result['message'])
+            ? (string) $result['message']
+            : Text::_(CheckoutGuard::messageKey($error !== '' ? $error : 'provider'));
+
+        $app->enqueueMessage($message, 'error');
+
+        return false;
+    }
+
+    /**
+     * Cart-level safety net (besides add-to-cart): re-checks the subscription rules when the customer
+     * proceeds to payment, and requires AlliancePay as the payment method for a subscription cart.
+     *
+     * @param VirtueMartCart $cart
+     *
+     * @return bool|null false to send the customer back to the payment step; null when not applicable
+     *
+     * @since version 1.5.0
+     */
+    public function plgVmOnCheckoutCheckDataPayment(VirtueMartCart $cart)
+    {
+        $inspection = CartInspection::fromLines($cart->cartProductsData ?? []);
+
+        if (!$inspection->hasSubscription()) {
+            return null;
+        }
+
+        $userId = (int) Factory::getApplication()->getIdentity()->id;
+        $violation = $this->checkoutGuard->check($inspection, $userId);
+
+        if ($violation === null && !$this->selectedThisByMethodId($cart->virtuemart_paymentmethod_id)) {
+            $violation = 'requires_alliancepay';
+        }
+
+        if ($violation === null) {
+            return null;
+        }
+
+        Factory::getApplication()->enqueueMessage(Text::_(CheckoutGuard::messageKey($violation)), 'warning');
+
+        return false;
+    }
+
+    /**
+     * Shows the customer's subscription (status + cancel button) on the order details page.
+     *
+     * @param int $virtuemart_order_id
+     * @param int $virtuemart_paymentmethod_id
+     * @param string $payment_name
+     *
+     * @return null
+     *
+     * @since version 1.5.0
+     */
+    public function plgVmOnShowOrderFEPayment($virtuemart_order_id, $virtuemart_paymentmethod_id, &$payment_name)
+    {
+        if (!$this->selectedThisByMethodId($virtuemart_paymentmethod_id)) {
+            return null;
+        }
+
+        $subscription = $this->subscriptionRepository->findByVirtuemartOrderId((int) $virtuemart_order_id);
+
+        if ($subscription === null || Factory::getApplication()->input->getCmd('format') === 'pdf') {
+            return null;
+        }
+
+        $method = $this->getVmPluginMethod($virtuemart_paymentmethod_id);
+        $canCancel = in_array($subscription->status->value, ['ACTIVE', 'PENDING'], true)
+            && $subscription->providerOrderId !== null;
+
+        $payment_name = ($method->payment_name ?? '') . $this->renderByLayout('subscription_order', [
+            'subscription' => $subscription,
+            'canCancel' => $canCancel,
+            'cancelUrl' => Route::_(
+                'index.php?option=com_virtuemart&view=plugin&type=vmpayment&name=alliancepay'
+                . '&task=' . self::SELF_CALL_CANCEL_SUBSCRIPTION . '&format=raw',
+                false
+            ),
+            'token' => Session::getFormToken(),
+        ]);
+
+        return null;
+    }
+
+    /**
+     * Storefront actions of the plugin (VM plugin controller): cancelling one's own subscription.
+     *
+     * @param string $type
+     * @param string $name
+     * @param mixed $render
+     *
+     * @return bool
+     *
+     * @throws Exception
+     * @since version 1.5.0
+     */
+    public function plgVmOnSelfCallFE($type, $name, &$render)
+    {
+        if ($name !== $this->_name || $type !== 'vmpayment') {
+            return false;
+        }
+
+        $app = Factory::getApplication();
+        $input = $app->input;
+
+        if ($input->getCmd('task') !== self::SELF_CALL_CANCEL_SUBSCRIPTION) {
+            return false;
+        }
+
+        $orderUrl = Route::_('index.php?option=com_virtuemart&view=orders&layout=list', false);
+
+        if ($input->getMethod() !== 'POST' || !Session::checkToken('post')) {
+            $app->enqueueMessage(Text::_('JINVALID_TOKEN'), 'error');
+            $app->redirect($orderUrl);
+        }
+
+        $userId = (int) $app->getIdentity()->id;
+
+        try {
+            $this->subscriptionCancelService->cancelByCustomer($input->post->getInt('subscription_id'), $userId);
+            $app->enqueueMessage(Text::_('VMPAYMENT_ALLIANCEPAY_SUB_CANCELED'), 'message');
+        } catch (Throwable $e) {
+            Log::add('Subscription cancel failed: ' . $e->getMessage(), Log::ERROR, 'alliance_payment');
+            $app->enqueueMessage(Text::_('VMPAYMENT_ALLIANCEPAY_SUB_CANCEL_FAILED'), 'error');
+        }
+
+        $app->redirect($orderUrl);
 
         return true;
     }

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<access component="com_alliancepay">
+    <section name="component">
+        <action name="core.admin" title="JACTION_ADMIN" description="JACTION_ADMIN_COMPONENT_DESC" />
+        <action name="core.manage" title="JACTION_MANAGE" description="JACTION_MANAGE_COMPONENT_DESC" />
+        <action name="alliancepay.reprice" title="COM_ALLIANCEPAY_ACTION_REPRICE" description="COM_ALLIANCEPAY_ACTION_REPRICE_DESC" />
+        <action name="alliancepay.runnow" title="COM_ALLIANCEPAY_ACTION_RUNNOW" description="COM_ALLIANCEPAY_ACTION_RUNNOW_DESC" />
+        <action name="alliancepay.archive" title="COM_ALLIANCEPAY_ACTION_ARCHIVE" description="COM_ALLIANCEPAY_ACTION_ARCHIVE_DESC" />
+    </section>
+</access>

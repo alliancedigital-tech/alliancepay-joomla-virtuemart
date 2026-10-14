@@ -1,16 +1,11 @@
 <?php
 namespace Alliance\Plugin\Vmpayment\Alliancepay\Config;
 
-use Alliance\Plugin\Vmpayment\Alliancepay\Extension\Entity\AllianceAuthenticationData;
-use Alliance\Plugin\Vmpayment\Alliancepay\Services\ConvertData\ConvertDataService;
-use Alliance\Plugin\Vmpayment\Alliancepay\Services\DateTime\DateTimeNormalizer;
-use Exception;
 use Joomla\CMS\Log\Log;
 use Joomla\CMS\Plugin\PluginHelper;
 use Joomla\Database\DatabaseInterface;
 use Joomla\CMS\Factory;
 use Alliance\Plugin\Vmpayment\Alliancepay\Config\ConfigParser\PipeParser;
-use Throwable;
 
 class Config
 {
@@ -23,6 +18,9 @@ class Config
         'USD' => 840,
         'EUR' => 978,
     ];
+    // Subscriptions are UAH-only, regardless of which currencies a one-off payment accepts
+    // (RuleValidator::supportedCurrencyCodes(), ProductLookup's price lookup).
+    public const SUBSCRIPTION_CURRENCY_CODE = 980;
     public const OPERATION_TYPE_A2A = 'ACCOUNT_2_ACCOUNT';
     public const DIRECT_TYPE_BANK_LINK = 'BANK_LINK';
     public const PRIORITY_BANK_CODE = 'ALL_BANKS';
@@ -33,44 +31,15 @@ class Config
     public const OPERATION_TYPE_PREAUTH = 'PREAUTH';
     public const OPERATION_TYPE_COMPLETION = 'COMPLETION';
 
-    public const SENSITIVE_DATA_FIELD_REFRESH_TOKEN = 'refreshToken';
-    public const SENSITIVE_DATA_FIELD_AUTH_TOKEN = 'authToken';
-    public const SENSITIVE_DATA_FIELD_DEVICE_ID = 'deviceId';
-    public const SENSITIVE_DATA_FIELD_SERVER_PUBLIC = 'serverPublic';
-    public const SENSITIVE_DATA_FIELD_TOKEN_EXPIRATION_DATE_TIME = 'tokenExpirationDateTime';
-    public const SENSITIVE_DATA_FIELD_TOKEN_EXPIRATION = 'tokenExpiration';
-    public const SENSITIVE_DATA_FIELD_SESSION_EXPIRATION = 'sessionExpiration';
-    public const SENSITIVE_DATA_FIELDS = [
-        self::SENSITIVE_DATA_FIELD_REFRESH_TOKEN,
-        self::SENSITIVE_DATA_FIELD_AUTH_TOKEN,
-        self::SENSITIVE_DATA_FIELD_DEVICE_ID,
-        self::SENSITIVE_DATA_FIELD_SERVER_PUBLIC,
-        self::SENSITIVE_DATA_FIELD_TOKEN_EXPIRATION_DATE_TIME,
-        self::SENSITIVE_DATA_FIELD_TOKEN_EXPIRATION,
-        self::SENSITIVE_DATA_FIELD_SESSION_EXPIRATION,
-    ];
-
-    const PAYMENT_SERVICE_CODE_CONFIG_NAME = 'service_code';
     const PAYMENT_API_URL_CONFIG_NAME = 'api_url';
     const PAYMENT_AUTH_KEY_CONFIG_NAME = 'auth_key';
+    const PAYMENT_JWS_PRIVATE_KEY_CONFIG_NAME = 'jws_private_key';
+    const PAYMENT_JWS_KEY_ID_CONFIG_NAME = 'jws_key_id';
 
     const PAYMENT_MERCHAT_ID_CONFIG_NAME = 'merchant_id';
 
     const PAYMENT_STATUS_PAGE_TYPE_CONFIG_NAME = 'status_page_type';
     const PAYMENT_HPP_PAY_TYPE_CONFIG_NAME = 'payment_type';
-    const PAYMENT_REFRESH_TOKEN_CONFIG_NAME = 'refresh_token';
-
-    const PAYMENT_AUTH_TOKEN_CONFIG_NAME = 'auth_token';
-
-    const PAYMENT_DEVICE_ID_CONFIG_NAME = 'device_id';
-
-    const PAYMENT_SERVER_PUBLIC_KEY_CONFIG_NAME = 'server_public';
-
-    const PAYMENT_TOKEN_EXPIRATION_DATE_TIME_CONFIG_NAME = 'token_expiration_date_time';
-
-    const PAYMENT_TOKEN_EXPIRATION_CONFIG_NAME = 'token_expiration';
-
-    const PAYMENT_SESSION_EXPIRATION_CONFIG_NAME = 'session_expiration';
 
     const PAYMENT_SUCCESS_PAYMENT_STATUS_CONFIG_NAME = 'status_payment_success';
     const PAYMENT_FAIL_PAYMENT_STATUS_CONFIG_NAME = 'status_payment_fail';
@@ -82,7 +51,15 @@ class Config
     const PAYMENT_PREAUTH_PENDING_STATUS_CONFIG_NAME = 'status_preauth_pending';
     const PAYMENT_COMPLETION_TRIGGER_STATUS_CONFIG_NAME = 'status_completion_trigger';
 
-    private array $params;
+    const SUBSCRIPTIONS_ENABLED_CONFIG_NAME = 'subscriptions_enabled';
+    const SUBSCRIPTION_REPRICE_MIN_DAYS_CONFIG_NAME = 'subscription_reprice_min_days';
+    const SUBSCRIPTION_CONTENT_TYPE_CONFIG_NAME = 'subscription_content_type';
+    const SUBSCRIPTION_SEND_API_VERSION_CONFIG_NAME = 'subscription_send_api_version';
+
+    public const DEFAULT_SUBSCRIPTION_REPRICE_MIN_DAYS = 30;
+    public const DEFAULT_SUBSCRIPTION_CONTENT_TYPE = 'application/jwt';
+
+    private array $params = [];
 
     private ?int $pluginId;
 
@@ -91,11 +68,7 @@ class Config
     private const PLUGIN_NAME = 'alliancepay';
     private const PLUGIN_SCOPE = 'vmpayment';
 
-    public function __construct(
-        private readonly DateTimeNormalizer $dateTimeNormalizer,
-        private readonly AllianceAuthenticationData $allianceAuthenticationData,
-        private readonly ConvertDataService $convertDataService,
-    )
+    public function __construct()
     {
         $this->db = Factory::getContainer()->get(DatabaseInterface::class);
         $plugin = PluginHelper::getPlugin(self::PLUGIN_SCOPE, self::PLUGIN_NAME);
@@ -110,13 +83,6 @@ class Config
             $this->db->setQuery($query);
             $result = $this->db->loadResult() ?? '';
             $this->params = PipeParser::decode($result);
-            $config = $this->allianceAuthenticationData->load(
-                $this->pluginId,
-                'virtuemart_paymentmethod_id'
-            );
-            if (!empty($config->getProperties())) {
-                $this->params = [...$this->params, ...$config->getProperties()];
-            }
         }
 
         Log::addLogger(
@@ -156,17 +122,6 @@ class Config
      *
      * @since version 1.0.0
      */
-    public function getServiceCode(): string
-    {
-        return $this->params[self::PAYMENT_SERVICE_CODE_CONFIG_NAME] ?? '';
-    }
-
-    /**
-     *
-     * @return string
-     *
-     * @since version 1.0.0
-     */
     public function getApiUrl(): string
     {
         $url = $this->params[self::PAYMENT_API_URL_CONFIG_NAME] ?? '';
@@ -182,22 +137,28 @@ class Config
      *
      * @return string
      *
-     * @since version 1.0.0
+     * @since version 1.5.0
      */
-    public function getDeviceId(): string
+    public function getJwsPrivateKey(): string
     {
-        return $this->params[self::PAYMENT_DEVICE_ID_CONFIG_NAME] ?? '';
+        $key = $this->params[self::PAYMENT_JWS_PRIVATE_KEY_CONFIG_NAME] ?? '';
+
+        if (!empty($key)) {
+            $key = str_replace('\\', '', $key);
+        }
+
+        return $key ?? '';
     }
 
     /**
      *
      * @return string
      *
-     * @since version 1.0.0
+     * @since version 1.5.0
      */
-    public function getRefreshToken(): string
+    public function getJwsKeyId(): string
     {
-        return $this->params[self::PAYMENT_REFRESH_TOKEN_CONFIG_NAME] ?? '';
+        return $this->params[self::PAYMENT_JWS_KEY_ID_CONFIG_NAME] ?? '';
     }
 
     /**
@@ -274,17 +235,6 @@ class Config
     public function getFailRefundStatus(): string
     {
         return $this->params[self::PAYMENT_FAIL_REFUND_STATUS_CONFIG_NAME] ?? '';
-    }
-
-    /**
-     *
-     * @return string
-     *
-     * @since version 1.0.0
-     */
-    public function getServerPublicKey(): string
-    {
-        return $this->params[self::PAYMENT_SERVER_PUBLIC_KEY_CONFIG_NAME] ?? '';
     }
 
     /**
@@ -395,71 +345,58 @@ class Config
     }
 
     /**
-     * @param array $authData
+     * @return bool
      *
-     *
-     * @throws Exception
-     * @since version 1.0.0
+     * @since version 1.5.0
      */
-    public function saveAuthentificationData(array $authData): void
+    public function isSubscriptionsEnabled(): bool
     {
-        if (!$this->hasAllRequiredFields($authData)) {
-            return;
-        }
-
-        $authData[self::SENSITIVE_DATA_FIELD_SERVER_PUBLIC] =
-            json_encode($authData[self::SENSITIVE_DATA_FIELD_SERVER_PUBLIC]);
-        $authData[self::SENSITIVE_DATA_FIELD_TOKEN_EXPIRATION_DATE_TIME] = $this->dateTimeNormalizer->normalizeDate($authData[self::SENSITIVE_DATA_FIELD_TOKEN_EXPIRATION_DATE_TIME]);
-        $authData[self::SENSITIVE_DATA_FIELD_TOKEN_EXPIRATION] = $this->dateTimeNormalizer->normalizeDate($authData[self::SENSITIVE_DATA_FIELD_TOKEN_EXPIRATION]);
-        $authData[self::SENSITIVE_DATA_FIELD_SESSION_EXPIRATION] = $this->dateTimeNormalizer->normalizeDate($authData[self::SENSITIVE_DATA_FIELD_SESSION_EXPIRATION]);
-
-        $convertedAuthData = $this->convertDataService->camelToSnakeArrayKeys($authData);
-        $convertedAuthData['virtuemart_paymentmethod_id'] = $this->pluginId;
-
-        try {
-            $this->allianceAuthenticationData->reset();
-            $this->allianceAuthenticationData->load(
-                $this->pluginId,
-                'virtuemart_paymentmethod_id'
-            );
-            if (!$this->allianceAuthenticationData->bind($convertedAuthData)) {
-                throw new Exception(
-                    'Помилка прив\'язки даних: ' . $this->allianceAuthenticationData->getError()
-                );
-            }
-
-            if (!$this->allianceAuthenticationData->check()) {
-                throw new Exception(
-                    'Помилка валідації: ' . $this->allianceAuthenticationData->getError()
-                );
-            }
-
-            if (!$this->allianceAuthenticationData->store()) {
-                throw new Exception(
-                    'Помилка збереження в БД: ' . $this->allianceAuthenticationData->getError()
-                );
-            }
-        } catch (Throwable $exception) {
-            Log::add($exception->getMessage(), Log::ERROR);
-        }
+        return (string) ($this->params[self::SUBSCRIPTIONS_ENABLED_CONFIG_NAME] ?? '0') === '1';
     }
 
     /**
-     * @param array $authData
+     * Minimum number of days between a mass-reprice action and the moment new rules take effect.
      *
-     * @return bool
+     * @return int
      *
-     * @throws Exception
-     * @since version 1.0.0
+     * @since version 1.5.0
      */
-    private function hasAllRequiredFields(array $authData): bool
+    public function getSubscriptionRepriceMinDays(): int
     {
-        foreach (self::SENSITIVE_DATA_FIELDS as $key) {
-            if (empty($authData[$key])) {
-                throw new Exception('Alliance payment configuration key ' . $key . ' is missing.');
-            }
+        $days = (int) ($this->params[self::SUBSCRIPTION_REPRICE_MIN_DAYS_CONFIG_NAME]
+            ?? self::DEFAULT_SUBSCRIPTION_REPRICE_MIN_DAYS);
+
+        return $days > 0 ? $days : self::DEFAULT_SUBSCRIPTION_REPRICE_MIN_DAYS;
+    }
+
+    /**
+     * Content-Type of signed requests to the scheduled_payments/* endpoint group.
+     *
+     * @return string
+     *
+     * @since version 1.5.0
+     */
+    public function getSubscriptionContentType(): string
+    {
+        $type = (string) ($this->params[self::SUBSCRIPTION_CONTENT_TYPE_CONFIG_NAME] ?? '');
+
+        // VirtueMart stores each plugin param value JSON-encoded (vmJsApi::safe_json_encode),
+        // which escapes "/" to "\/"; our own PipeParser::decode() does not undo that. Same
+        // workaround as getApiUrl()/getJwsPrivateKey()/getAuthorizationKey() above.
+        if ($type !== '') {
+            $type = str_replace('\\', '', $type);
         }
 
-        return true;
+        return $type !== '' ? $type : self::DEFAULT_SUBSCRIPTION_CONTENT_TYPE;
+    }
+
+    /**
+     * @return bool  Whether the x-api_version header is sent to the scheduled_payments/* group.
+     *
+     * @since version 1.5.0
+     */
+    public function isSubscriptionApiVersionHeaderSent(): bool
+    {
+        return (string) ($this->params[self::SUBSCRIPTION_SEND_API_VERSION_CONFIG_NAME] ?? '0') === '1';
     }
 }

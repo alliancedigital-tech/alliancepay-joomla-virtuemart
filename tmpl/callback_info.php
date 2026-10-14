@@ -8,6 +8,13 @@ defined('_JEXEC') or die('Restricted access');
         <?= JText::_('VMPAYMENT_ALLIANCE_TRANSACTIONS_HISTORY'); ?>
     </h4>
 
+    <?php if (!empty($viewData['subscriptionStatus'])) : ?>
+        <p style="margin: 4px 0 10px;">
+            <strong><?= JText::_('VMPAYMENT_ALLIANCEPAY_SUB_STATUS'); ?>:</strong>
+            <?= htmlspecialchars(JText::_('VMPAYMENT_ALLIANCEPAY_SUB_STATUS_' . $viewData['subscriptionStatus'])); ?>
+        </p>
+    <?php endif; ?>
+
     <?php if (!empty($viewData['hppOrderId'])) : ?>
         <p style="margin: 4px 0 10px; color: #555; font-size: 0.9em;">
             HPP Order ID: <code><?= htmlspecialchars($viewData['hppOrderId']); ?></code>
@@ -47,7 +54,7 @@ defined('_JEXEC') or die('Restricted access');
                     <tr>
                         <td><strong><?= JText::_('VMPAYMENT_ALLIANCE_CB_STATUS'); ?></strong></td>
                         <td>
-                            <span class="badge" style="background: <?= (strpos($tx['status'], 'SUCCESS') !== false ? '#17a2b8' : 'red'); ?>; color: #fff; padding: 3px 7px;">
+                            <span class="badge" style="background: <?= (strpos($tx['status'], 'SUCCESS') !== false ? '#17a2b8' : (in_array($tx['status'], ['WAITING', 'PROCESSING', 'RETRY', 'PENDING'], true) ? '#6c757d' : 'red')); ?>; color: #fff; padding: 3px 7px;">
                                 <?= htmlspecialchars($tx['status']); ?>
                             </span>
                         </td>
@@ -56,6 +63,12 @@ defined('_JEXEC') or die('Restricted access');
                         <td><strong><?= JText::_('VMPAYMENT_ALLIANCE_CB_DATE'); ?></strong></td>
                         <td><?= htmlspecialchars($tx['creationDateTime']); ?></td>
                     </tr>
+                    <?php if (!empty($tx['note'])) : ?>
+                        <tr>
+                            <td><strong><?= JText::_('VMPAYMENT_ALLIANCE_CB_NOTE'); ?></strong></td>
+                            <td><?= htmlspecialchars($tx['note']); ?></td>
+                        </tr>
+                    <?php endif; ?>
                     </tbody>
                 </table>
             </div>

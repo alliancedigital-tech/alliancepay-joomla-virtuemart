@@ -112,13 +112,14 @@ class UpdateAllianceOrder
         $callbackData = $this->prepareOperations($callbackData);
 
         if (!empty($orderCallBackData)) {
+            $existingOperations = $orderCallBackData['operations'] ?? [];
             $operations = [];
-            foreach ($callbackData['operations'] as $operation) {
+            foreach ($callbackData['operations'] ?? [] as $operation) {
                 if (isset($operation['operationId'])) {
                     $isAlredyExist = $this->checkIfAlreadyExistOperation(
                         'operationId',
                         $operation['operationId'],
-                        $orderCallBackData['operations']
+                        $existingOperations
                     );
                     if (!$isAlredyExist) {
                         $operations[] = $operation;
@@ -128,7 +129,7 @@ class UpdateAllianceOrder
                     $isAlredyExistByRequestId = $this->checkIfAlreadyExistOperation(
                         'merchantRequestId',
                         $operation['merchantRequestId'],
-                        $orderCallBackData['operations']
+                        $existingOperations
                     );
                     if (!$isAlredyExistByRequestId) {
                         $operation['operationId'] = '';
@@ -136,7 +137,7 @@ class UpdateAllianceOrder
                     }
                 }
             }
-            $callbackData['operations'] = array_merge($orderCallBackData['operations'], $operations);
+            $callbackData['operations'] = array_merge($existingOperations, $operations);
         }
 
         return $callbackData;
