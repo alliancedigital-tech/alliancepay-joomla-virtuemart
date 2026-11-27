@@ -92,4 +92,26 @@ class UrlProvider
 
         return $url;
     }
+
+    /**
+     * Absolute URL the bank calls with the fiscalization result.
+     *
+     * @param int $orderId
+     *
+     * @return string
+     *
+     * @since version 1.6.0
+     */
+    public function getFiscalizationCallbackUrl(int $orderId): string
+    {
+        if (empty($orderId)) {
+            return '';
+        }
+
+        return Uri::root(
+            false,
+            '/index.php?option=com_virtuemart&view=pluginresponse&task=pluginnotification'
+            . '&action=fiscalization_callback&onme=' . $orderId . '&peityp=alliancepay'
+        );
+    }
 }

@@ -13,6 +13,7 @@ use Alliance\Plugin\Vmpayment\Alliancepay\Config\Config;
 use Alliance\Plugin\Vmpayment\Alliancepay\Extension\Entity\AllianceOrderTable;
 use Alliance\Plugin\Vmpayment\Alliancepay\Extension\Entity\AllianceRefundTable;
 use Alliance\Plugin\Vmpayment\Alliancepay\Extension\Payment\Processor\AbstractProcessor;
+use Alliance\Plugin\Vmpayment\Alliancepay\Fiscalization\Service\RefundItemsBuilder;
 use Alliance\Plugin\Vmpayment\Alliancepay\Services\ConvertData\ConvertDataService;
 use Alliance\Plugin\Vmpayment\Alliancepay\Services\DateTime\DateTimeNormalizer;
 use Alliance\Plugin\Vmpayment\Alliancepay\Services\Gateway\HttpClient;
@@ -37,7 +38,8 @@ class RefundProcessor extends AbstractProcessor
         private readonly HttpClient $httpClient,
         private readonly UrlProvider $urlProvider,
         private readonly ConvertDataService $convertDataService,
-        private readonly DateTimeNormalizer $dateTimeNormalizer
+        private readonly DateTimeNormalizer $dateTimeNormalizer,
+        private readonly RefundItemsBuilder $refundItemsBuilder
     ) {
         Log::addLogger(
             ['text_file' => 'plg_vmpayment_alliance.log.php'],
@@ -46,7 +48,13 @@ class RefundProcessor extends AbstractProcessor
         );
     }
 
-    public function processRefund(int $orderId, ?int $amount = null): array
+    /**
+     * @param int $orderId
+     * @param int|null $amount partial refund amount; null for a full refund
+     * @param int[]|null $itemIds order items returned by a partial refund (recorded for fiscalization);
+     *                            null for a full refund
+     */
+    public function processRefund(int $orderId, ?int $amount = null, ?array $itemIds = null): array
     {
 
         $allianceOrder = $this->allianceOrderTable->load($orderId, 'order_id');
@@ -123,6 +131,7 @@ class RefundProcessor extends AbstractProcessor
             if (!empty($refundResult) && isset($refundResult['type']) && isset($refundResult['status'])) {
                 $convertedRefundData = $this->convertDataService->camelToSnakeArrayKeys($refundResult);
                 $convertedRefundData['order_id'] = $orderId;
+                $convertedRefundData['items'] = $this->refundItemsBuilder->build($orderId, $itemIds);
                 $this->alliancerefundTable->bindChecknStoreAllianceRefund($convertedRefundData);
 
                 if ($this->checkIfSuccess($refundResult['type'], $refundResult['status'])) {

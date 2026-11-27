@@ -19,6 +19,7 @@ if (file_exists(JPATH_PLUGINS . '/vmpayment/alliancepay/vendor/autoload.php')) {
 use Alliance\Plugin\Vmpayment\Alliancepay\Extension\Payment\CompletionProcessor;
 use Alliance\Plugin\Vmpayment\Alliancepay\Extension\Payment\PaymentProcessor;
 use Alliance\Plugin\Vmpayment\Alliancepay\Extension\Payment\RefundProcessor;
+use Alliance\Plugin\Vmpayment\Alliancepay\Fiscalization\Service\FiscalizationFacade;
 use Alliance\Plugin\Vmpayment\Alliancepay\Services\Callback\CallbackProcessor;
 use Alliance\Plugin\Vmpayment\Alliancepay\Extension\Entity\AllianceOrderTable;
 use Alliance\Plugin\Vmpayment\Alliancepay\Extension\Entity\AllianceRefundTable;
@@ -65,6 +66,7 @@ return new class implements ServiceProviderInterface
                     $container->get(SubscriptionCancelService::class),
                     $container->get(SubscriptionRepository::class),
                     $container->get(ScheduledPaymentRepository::class),
+                    $container->get(FiscalizationFacade::class),
                     $subject,
                     $config
                 );

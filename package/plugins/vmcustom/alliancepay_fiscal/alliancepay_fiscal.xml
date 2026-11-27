@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<extension method="upgrade" version="5.0" type="plugin" group="vmcustom">
+    <name>VMCustom - AlliancePay Fiscalization</name>
+    <creationDate>2026-11-02</creationDate>
+    <author>Alliance Dgtl.</author>
+    <license>GNU General Public License v2 or later</license>
+    <version>1.6.0</version>
+    <description>PLG_VMCUSTOM_ALLIANCEPAY_FISCAL_DESC</description>
+    <files>
+        <filename plugin="alliancepay_fiscal">alliancepay_fiscal.php</filename>
+        <folder>language</folder>
+    </files>
+    <languages>
+        <language tag="en-GB">language/en-GB/en-GB.plg_vmcustom_alliancepay_fiscal.ini</language>
+        <language tag="en-GB">language/en-GB/en-GB.plg_vmcustom_alliancepay_fiscal.sys.ini</language>
+        <language tag="uk-UA">language/uk-UA/uk-UA.plg_vmcustom_alliancepay_fiscal.ini</language>
+        <language tag="uk-UA">language/uk-UA/uk-UA.plg_vmcustom_alliancepay_fiscal.sys.ini</language>
+    </languages>
+</extension>

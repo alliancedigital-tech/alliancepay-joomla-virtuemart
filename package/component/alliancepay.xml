@@ -4,7 +4,7 @@
     <author>Alliance Dgtl.</author>
     <creationDate>2026-09-25</creationDate>
     <license>GNU General Public License v2 or later</license>
-    <version>1.5.0</version>
+    <version>1.6.0</version>
     <description>COM_ALLIANCEPAY_XML_DESCRIPTION</description>
     <namespace path="src">Alliance\Component\Alliancepay</namespace>
     <files folder="site">

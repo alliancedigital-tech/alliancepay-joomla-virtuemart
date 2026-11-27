@@ -4,13 +4,15 @@
     <author>Alliance Dgtl.</author>
     <creationDate>2026-09-25</creationDate>
     <license>GNU General Public License v2 or later</license>
-    <version>1.5.0</version>
+    <version>1.6.0</version>
     <description>Alliance Payment Gateway for VirtueMart</description>
+    <scriptfile>script.php</scriptfile>
     <namespace path="src">Alliance\Plugin\Vmpayment\Alliancepay</namespace>
     <element>alliancepay</element>
     <files>
         <filename plugin="alliancepay">src/Extension/AlliancePay.php</filename>
         <file>index.html</file>
+        <file>script.php</file>
         <folder>services</folder>
         <folder>src</folder>
         <folder>sql</folder>
@@ -196,6 +198,57 @@
                     <option value="0">JNO</option>
                     <option value="1">JYES</option>
                 </field>
+            </fieldset>
+            <fieldset name="fiscalization" label="VMPAYMENT_ALLIANCEPAY_FISCALIZATION">
+                <field
+                    name="fiscalization_enabled"
+                    type="radio"
+                    default="0"
+                    layout="joomla.form.field.radio.switcher"
+                    label="VMPAYMENT_ALLIANCEPAY_FISCALIZATION_ENABLED"
+                    description="VMPAYMENT_ALLIANCEPAY_FISCALIZATION_ENABLED_DESC">
+                    <option value="0">JNO</option>
+                    <option value="1">JYES</option>
+                </field>
+                <field
+                    name="fiscalization_auto"
+                    type="radio"
+                    default="0"
+                    layout="joomla.form.field.radio.switcher"
+                    label="VMPAYMENT_ALLIANCEPAY_FISCALIZATION_AUTO"
+                    description="VMPAYMENT_ALLIANCEPAY_FISCALIZATION_AUTO_DESC">
+                    <option value="0">JNO</option>
+                    <option value="1">JYES</option>
+                </field>
+                <field
+                    name="fiscalization_tax_code"
+                    type="text"
+                    default=""
+                    label="VMPAYMENT_ALLIANCEPAY_FISCALIZATION_TAX_CODE"
+                    description="VMPAYMENT_ALLIANCEPAY_FISCALIZATION_TAX_CODE_DESC"
+                />
+                <field
+                    name="fiscalization_classification_code"
+                    type="text"
+                    default=""
+                    label="VMPAYMENT_ALLIANCEPAY_FISCALIZATION_CLASSIFICATION_CODE"
+                    description="VMPAYMENT_ALLIANCEPAY_FISCALIZATION_CLASSIFICATION_CODE_DESC"
+                />
+                <field
+                    name="fiscalization_excise_labels"
+                    type="textarea"
+                    default=""
+                    rows="3"
+                    label="VMPAYMENT_ALLIANCEPAY_FISCALIZATION_EXCISE_LABELS"
+                    description="VMPAYMENT_ALLIANCEPAY_FISCALIZATION_EXCISE_LABELS_DESC"
+                />
+                <field
+                    name="fiscalization_measurement_code"
+                    type="text"
+                    default="0001"
+                    label="VMPAYMENT_ALLIANCEPAY_FISCALIZATION_MEASUREMENT_CODE"
+                    description="VMPAYMENT_ALLIANCEPAY_FISCALIZATION_MEASUREMENT_CODE_DESC"
+                />
             </fieldset>
         </fields>
     </vmconfig>

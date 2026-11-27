@@ -6,6 +6,8 @@ use Joomla\CMS\Plugin\PluginHelper;
 use Joomla\Database\DatabaseInterface;
 use Joomla\CMS\Factory;
 use Alliance\Plugin\Vmpayment\Alliancepay\Config\ConfigParser\PipeParser;
+use Alliance\Plugin\Vmpayment\Alliancepay\Fiscalization\Domain\FiscalValueValidator;
+use Alliance\Plugin\Vmpayment\Alliancepay\Fiscalization\Support\VmParams;
 
 class Config
 {
@@ -55,6 +57,13 @@ class Config
     const SUBSCRIPTION_REPRICE_MIN_DAYS_CONFIG_NAME = 'subscription_reprice_min_days';
     const SUBSCRIPTION_CONTENT_TYPE_CONFIG_NAME = 'subscription_content_type';
     const SUBSCRIPTION_SEND_API_VERSION_CONFIG_NAME = 'subscription_send_api_version';
+
+    const FISCALIZATION_ENABLED_CONFIG_NAME = 'fiscalization_enabled';
+    const FISCALIZATION_AUTO_CONFIG_NAME = 'fiscalization_auto';
+    const FISCALIZATION_TAX_CODE_CONFIG_NAME = 'fiscalization_tax_code';
+    const FISCALIZATION_CLASSIFICATION_CODE_CONFIG_NAME = 'fiscalization_classification_code';
+    const FISCALIZATION_EXCISE_LABELS_CONFIG_NAME = 'fiscalization_excise_labels';
+    const FISCALIZATION_MEASUREMENT_CODE_CONFIG_NAME = 'fiscalization_measurement_code';
 
     public const DEFAULT_SUBSCRIPTION_REPRICE_MIN_DAYS = 30;
     public const DEFAULT_SUBSCRIPTION_CONTENT_TYPE = 'application/jwt';
@@ -398,5 +407,82 @@ class Config
     public function isSubscriptionApiVersionHeaderSent(): bool
     {
         return (string) ($this->params[self::SUBSCRIPTION_SEND_API_VERSION_CONFIG_NAME] ?? '0') === '1';
+    }
+
+    /**
+     * @return bool  Whether fiscalization (requests and admin buttons) is switched on.
+     *
+     * @since version 1.6.0
+     */
+    public function isFiscalizationEnabled(): bool
+    {
+        return (string) ($this->params[self::FISCALIZATION_ENABLED_CONFIG_NAME] ?? '0') === '1';
+    }
+
+    /**
+     * @return bool  Whether PURCHASE / REFUND are fiscalized automatically (only when fiscalization is enabled).
+     *
+     * @since version 1.6.0
+     */
+    public function isAutoFiscalizationEnabled(): bool
+    {
+        return $this->isFiscalizationEnabled()
+            && (string) ($this->params[self::FISCALIZATION_AUTO_CONFIG_NAME] ?? '0') === '1';
+    }
+
+    /**
+     * @return int|null  Default products[].taxCode, null when not set or invalid.
+     *
+     * @since version 1.6.0
+     */
+    public function getFiscalizationDefaultTaxCode(): ?int
+    {
+        return FiscalValueValidator::parseTaxCode($this->getFiscalizationParam(self::FISCALIZATION_TAX_CODE_CONFIG_NAME));
+    }
+
+    /**
+     * @return string|null  Default products[].classificationCode, null when not set or invalid.
+     *
+     * @since version 1.6.0
+     */
+    public function getFiscalizationDefaultClassificationCode(): ?string
+    {
+        return FiscalValueValidator::parseClassificationCode(
+            $this->getFiscalizationParam(self::FISCALIZATION_CLASSIFICATION_CODE_CONFIG_NAME)
+        );
+    }
+
+    /**
+     * @return string[]  Default products[].exciseLabels (may be empty).
+     *
+     * @since version 1.6.0
+     */
+    public function getFiscalizationDefaultExciseLabels(): array
+    {
+        return FiscalValueValidator::parseExciseLabels(
+            $this->getFiscalizationParam(self::FISCALIZATION_EXCISE_LABELS_CONFIG_NAME)
+        );
+    }
+
+    /**
+     * @return string  Default products[].measurementCode; "0001" when not set (also for payment methods
+     *                 saved before the fiscalization settings existed).
+     *
+     * @since version 1.6.0
+     */
+    public function getFiscalizationDefaultMeasurementCode(): string
+    {
+        return FiscalValueValidator::parseMeasurementCode(
+            $this->getFiscalizationParam(self::FISCALIZATION_MEASUREMENT_CODE_CONFIG_NAME)
+        ) ?? FiscalValueValidator::DEFAULT_MEASUREMENT_CODE;
+    }
+
+    /**
+     * Fiscal params are plain strings. VirtueMart stores them JSON-encoded, and PipeParser only strips the
+     * quotes, so escapes such as "\/", "\n" or "\uXXXX" (Cyrillic) are still in the value.
+     */
+    private function getFiscalizationParam(string $key): string
+    {
+        return trim(VmParams::unescape((string) ($this->params[$key] ?? '')));
     }
 }

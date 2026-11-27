@@ -58,6 +58,7 @@ class AllianceRefundTable extends VmTable
     public $original_coin_amount = 0;
     public $original_ecom_operation_id = '';
     public $rrn_original = '';
+    public $items = null; // JSON: items and quantities returned by this refund (see RefundSelection)
     public function __construct(
         &$db,
         private readonly DateTimeNormalizer $dateTimeNormalizer,

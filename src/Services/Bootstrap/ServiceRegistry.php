@@ -14,6 +14,22 @@ use Alliance\Plugin\Vmpayment\Alliancepay\Extension\Entity\AllianceRefundTable;
 use Alliance\Plugin\Vmpayment\Alliancepay\Extension\Payment\CompletionProcessor;
 use Alliance\Plugin\Vmpayment\Alliancepay\Extension\Payment\PaymentProcessor;
 use Alliance\Plugin\Vmpayment\Alliancepay\Extension\Payment\RefundProcessor;
+use Alliance\Plugin\Vmpayment\Alliancepay\Fiscalization\Callback\FiscalizationCallbackProcessor;
+use Alliance\Plugin\Vmpayment\Alliancepay\Fiscalization\Domain\FiscalAttributeResolver;
+use Alliance\Plugin\Vmpayment\Alliancepay\Fiscalization\Domain\FiscalizationRowBuilder;
+use Alliance\Plugin\Vmpayment\Alliancepay\Fiscalization\Domain\FiscalizationRequestBuilder;
+use Alliance\Plugin\Vmpayment\Alliancepay\Fiscalization\Domain\ProductsBuilder;
+use Alliance\Plugin\Vmpayment\Alliancepay\Fiscalization\Http\FiscalizationApiClient;
+use Alliance\Plugin\Vmpayment\Alliancepay\Fiscalization\Repository\FiscalizationRepository;
+use Alliance\Plugin\Vmpayment\Alliancepay\Fiscalization\Repository\FiscalOperationRepository;
+use Alliance\Plugin\Vmpayment\Alliancepay\Fiscalization\Repository\OrderSnapshotRepository;
+use Alliance\Plugin\Vmpayment\Alliancepay\Fiscalization\Service\FiscalizationFacade;
+use Alliance\Plugin\Vmpayment\Alliancepay\Fiscalization\Service\FiscalizationService;
+use Alliance\Plugin\Vmpayment\Alliancepay\Fiscalization\Service\OrderHistoryNote;
+use Alliance\Plugin\Vmpayment\Alliancepay\Fiscalization\Service\RefundItemsBuilder;
+use Alliance\Plugin\Vmpayment\Alliancepay\Fiscalization\Domain\ProductFiscalValuesMerger;
+use Alliance\Plugin\Vmpayment\Alliancepay\Fiscalization\Repository\ProductFiscalAttributeRepository;
+use Alliance\Plugin\Vmpayment\Alliancepay\Fiscalization\Service\ProductFiscalAttributeService;
 use Alliance\Plugin\Vmpayment\Alliancepay\Services\Callback\CallbackProcessor;
 use Alliance\Plugin\Vmpayment\Alliancepay\Services\Customer\CustomerDataBuilder;
 use Alliance\Plugin\Vmpayment\Alliancepay\Services\ConvertData\ConvertDataService;
@@ -105,6 +121,78 @@ class ServiceRegistry implements ServiceProviderInterface
         });
         $container->share(Config::class, function () use ($container) {
             return new Config();
+        });
+        $container->share(ProductFiscalAttributeRepository::class, function () use ($container) {
+            return new ProductFiscalAttributeRepository(
+                $container->get(DatabaseInterface::class),
+                new ProductFiscalValuesMerger()
+            );
+        });
+        $container->share(ProductFiscalAttributeService::class, function () use ($container) {
+            return new ProductFiscalAttributeService(
+                $container->get(ProductFiscalAttributeRepository::class),
+                new FiscalAttributeResolver(),
+                $container->get(Config::class)
+            );
+        });
+        $container->share(FiscalizationRepository::class, function () use ($container) {
+            return new FiscalizationRepository($container->get(DatabaseInterface::class));
+        });
+        $container->share(OrderSnapshotRepository::class, function () use ($container) {
+            return new OrderSnapshotRepository($container->get(DatabaseInterface::class));
+        });
+        $container->share(FiscalOperationRepository::class, function () use ($container) {
+            return new FiscalOperationRepository(
+                $container->get(DatabaseInterface::class),
+                $container->get(SubscriptionRepository::class),
+                $container->get(ScheduledPaymentRepository::class)
+            );
+        });
+        $container->share(FiscalizationCallbackProcessor::class, function () use ($container) {
+            return new FiscalizationCallbackProcessor(
+                $container->get(FiscalizationRepository::class),
+                $container->get(FiscalizationService::class)
+            );
+        });
+        $container->share(FiscalizationFacade::class, function () use ($container) {
+            return new FiscalizationFacade(
+                $container->get(Config::class),
+                $container->get(JwsVerifier::class),
+                $container->get(FiscalizationCallbackProcessor::class),
+                $container->get(FiscalizationService::class),
+                $container->get(FiscalizationRepository::class),
+                $container->get(FiscalOperationRepository::class),
+                new FiscalizationRowBuilder()
+            );
+        });
+        $container->share(RefundItemsBuilder::class, function () use ($container) {
+            return new RefundItemsBuilder($container->get(OrderSnapshotRepository::class));
+        });
+        $container->share(OrderHistoryNote::class, function () use ($container) {
+            return new OrderHistoryNote($container->get(OrderSnapshotRepository::class));
+        });
+        $container->share(FiscalizationApiClient::class, function () use ($container) {
+            return new FiscalizationApiClient(
+                $container->get(HttpClientFactory::class),
+                $container->get(HttpFactory::class),
+                $container->get(JwsSigner::class),
+                $container->get(JwsVerifier::class),
+                $container->get(Config::class)
+            );
+        });
+        $container->share(FiscalizationService::class, function () use ($container) {
+            return new FiscalizationService(
+                $container->get(FiscalizationRepository::class),
+                $container->get(FiscalOperationRepository::class),
+                $container->get(OrderSnapshotRepository::class),
+                new ProductsBuilder(),
+                new FiscalizationRequestBuilder(),
+                $container->get(ProductFiscalAttributeService::class),
+                $container->get(FiscalizationApiClient::class),
+                $container->get(OrderHistoryNote::class),
+                $container->get(UrlProvider::class),
+                $container->get(Config::class)
+            );
         });
         $container->share(KeySetFactory::class, function () use ($container) {
             return new KeySetFactory();
@@ -202,6 +290,7 @@ class ServiceRegistry implements ServiceProviderInterface
                 $container->get(UrlProvider::class),
                 $container->get(ConvertDataService::class),
                 $container->get(DateTimeNormalizer::class),
+                $container->get(RefundItemsBuilder::class)
             );
         });
         $container->share(CompletionProcessor::class, function () use ($container) {

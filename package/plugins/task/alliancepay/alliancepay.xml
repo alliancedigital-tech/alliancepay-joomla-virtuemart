@@ -4,7 +4,7 @@
     <author>Alliance Dgtl.</author>
     <creationDate>2026-09-25</creationDate>
     <license>GNU General Public License version 2 or later</license>
-    <version>1.5.0</version>
+    <version>1.6.0</version>
     <description>PLG_TASK_ALLIANCEPAY_XML_DESCRIPTION</description>
     <namespace path="src">Alliance\Plugin\Task\Alliancepay</namespace>
     <files>

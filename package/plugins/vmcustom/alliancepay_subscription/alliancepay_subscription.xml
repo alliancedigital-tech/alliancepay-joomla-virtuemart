@@ -4,7 +4,7 @@
     <creationDate>2026-09-25</creationDate>
     <author>Alliance Dgtl.</author>
     <license>GNU General Public License v2 or later</license>
-    <version>1.5.0</version>
+    <version>1.6.0</version>
     <description>PLG_VMCUSTOM_ALLIANCEPAY_SUBSCRIPTION_DESC</description>
     <files>
         <filename plugin="alliancepay_subscription">alliancepay_subscription.php</filename>

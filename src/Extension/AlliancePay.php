@@ -13,6 +13,8 @@ use Alliance\Plugin\Vmpayment\Alliancepay\Extension\Entity\AllianceRefundTable;
 use Alliance\Plugin\Vmpayment\Alliancepay\Extension\Payment\CompletionProcessor;
 use Alliance\Plugin\Vmpayment\Alliancepay\Extension\Payment\PaymentProcessor;
 use Alliance\Plugin\Vmpayment\Alliancepay\Extension\Payment\RefundProcessor;
+use Alliance\Plugin\Vmpayment\Alliancepay\Fiscalization\Domain\FiscalValueValidator;
+use Alliance\Plugin\Vmpayment\Alliancepay\Fiscalization\Service\FiscalizationFacade;
 use Alliance\Plugin\Vmpayment\Alliancepay\Services\Callback\CallbackProcessor;
 use Alliance\Plugin\Vmpayment\Alliancepay\Subscription\Callback\CallbackPayload;
 use Alliance\Plugin\Vmpayment\Alliancepay\Subscription\Callback\CallbackResult;
@@ -59,6 +61,12 @@ class AlliancePay extends vmPSPlugin
 
     private const ACTION_CALLBACK = 'callback';
 
+    private const ACTION_FISCALIZATION_CALLBACK = 'fiscalization_callback';
+
+    private const FISCALIZE_TRIGGER = 'fiscalize';
+
+    private const FISCALIZATION_STATUS_TRIGGER = 'fiscalizationStatus';
+
     private const SELF_CALL_CANCEL_SUBSCRIPTION = 'cancelSubscription';
 
     public function __construct(
@@ -76,6 +84,7 @@ class AlliancePay extends vmPSPlugin
         private readonly SubscriptionCancelService $subscriptionCancelService,
         private readonly SubscriptionRepository $subscriptionRepository,
         private readonly ScheduledPaymentRepository $scheduledPaymentRepository,
+        private readonly FiscalizationFacade $fiscalizationFacade,
         $subject,
         $config = []
     ) {
@@ -106,6 +115,15 @@ class AlliancePay extends vmPSPlugin
         $orderId = $input->getInt('onme');
         $action = $input->get('action');
         $isPartialRefund = $input->getBool('partialRefund', false);
+
+        if ($action === self::ACTION_FISCALIZATION_CALLBACK) {
+            // Handled before readCallbackPayload(): that logs the raw body, and a fiscalization callback
+            // requires a verified signature.
+            header('Cache-Control: no-store');
+            http_response_code($this->fiscalizationFacade->handleCallback((string) file_get_contents('php://input')));
+            $this->finishCallbackResponse();
+        }
+
         [$data, $isSignatureVerified] = $this->readCallbackPayload();
 
         if (!is_null($data) && $this->processSubscriptionCallback($data, $isSignatureVerified)) {
@@ -114,6 +132,7 @@ class AlliancePay extends vmPSPlugin
 
         if (!is_null($data) && $action == self::ACTION_CALLBACK && $orderId) {
             $this->callbackProcessor->processCallback($orderId, $data);
+            $this->scheduleAutomaticFiscalization($orderId, $data['operation'] ?? []);
             if (!empty($data['operation'])
                 && !empty($data['operation']['type'])
                 && !empty($data['operation']['status'])
@@ -333,9 +352,49 @@ class AlliancePay extends vmPSPlugin
                     'warning'
                 );
             }
+
+            $this->reportInvalidFiscalizationSettings();
         }
 
         return $result;
+    }
+
+    /**
+     * VirtueMart ignores the return value of plgVmSetOnTablePluginParamsPayment and gives the hook no
+     * access to the posted data, so an invalid fiscalization setting cannot block the save. It is
+     * reported to the administrator instead; the Config getters treat an invalid stored value as
+     * "not set", and the fiscalization request is validated again before it is sent.
+     *
+     * @return void
+     *
+     * @since version 1.6.0
+     */
+    private function reportInvalidFiscalizationSettings(): void
+    {
+        $app = Factory::getApplication();
+        $params = $app->input->get('params', [], 'array');
+        $fields = [
+            FiscalValueValidator::FIELD_TAX_CODE => Config::FISCALIZATION_TAX_CODE_CONFIG_NAME,
+            FiscalValueValidator::FIELD_CLASSIFICATION_CODE => Config::FISCALIZATION_CLASSIFICATION_CODE_CONFIG_NAME,
+            FiscalValueValidator::FIELD_EXCISE_LABELS => Config::FISCALIZATION_EXCISE_LABELS_CONFIG_NAME,
+            FiscalValueValidator::FIELD_MEASUREMENT_CODE => Config::FISCALIZATION_MEASUREMENT_CODE_CONFIG_NAME,
+        ];
+        $raw = [];
+        $posted = false;
+
+        foreach ($fields as $field => $name) {
+            $value = $app->input->get($name, $params[$name] ?? null, 'raw');
+            $posted = $posted || $value !== null;
+            $raw[$field] = is_scalar($value) ? (string) $value : '';
+        }
+
+        if (!$posted) {
+            return;
+        }
+
+        foreach (FiscalValueValidator::validate($raw, true) as $errorKey) {
+            $app->enqueueMessage(Text::_($errorKey), 'error');
+        }
     }
 
     /**
@@ -421,6 +480,12 @@ class AlliancePay extends vmPSPlugin
         $request = vRequest::getRequest();
         $itemIds = isset($request['item_ids']) ? explode(',', $request['item_ids']) : [];
 
+        if ($task === self::FISCALIZE_TRIGGER || $task === self::FISCALIZATION_STATUS_TRIGGER) {
+            $this->handleFiscalizationAction($task);
+
+            return true;
+        }
+
         if ($task === self::PARTIAL_REFUND_TRIGGER && !empty($itemIds) && !empty($amount) && !empty($orderId)) {
             $isAuthorized = Factory::getApplication()
                 ->getIdentity()
@@ -430,7 +495,11 @@ class AlliancePay extends vmPSPlugin
             }
 
             $refundAmount = (int)($amount * 100);
-            $refundResult = $this->refundProcessor->processRefund($orderId, $refundAmount);
+            $refundResult = $this->refundProcessor->processRefund(
+                $orderId,
+                $refundAmount,
+                array_values(array_filter(array_map('intval', $itemIds)))
+            );
             $orderModel = VmModel::getModel('orders');
             $order = $orderModel->getOrder($orderId);
 
@@ -628,6 +697,8 @@ class AlliancePay extends vmPSPlugin
             );
         }
 
+        $this->scheduleAutomaticFiscalization($result->subscription->virtuemartOrderId, $payload->getOperation());
+
         return true;
     }
 
@@ -676,6 +747,101 @@ class AlliancePay extends vmPSPlugin
     }
 
     /**
+     * Queues a successful PURCHASE or REFUND for fiscalization (runs after the response is sent, only when
+     * automatic fiscalization is on). Never throws.
+     *
+     * @param int $orderId
+     * @param array $operation the callback's "operation" block
+     *
+     * @return void
+     *
+     * @since version 1.6.0
+     */
+    private function scheduleAutomaticFiscalization(int $orderId, array $operation): void
+    {
+        try {
+            if (
+                in_array($operation['type'] ?? '', [Config::OPERATION_TYPE_PURCHASE, Config::OPERATION_TYPE_REFUND], true)
+                && ($operation['status'] ?? '') === 'SUCCESS'
+                && !empty($operation['operationId'])
+            ) {
+                $this->fiscalizationFacade->scheduleAutomatic($orderId, (string) $operation['operationId']);
+            }
+        } catch (Throwable $e) {
+            Log::add('Cannot schedule fiscalization: ' . $e->getMessage(), Log::ERROR, 'alliance_payment');
+        }
+    }
+
+    /**
+     * Order page buttons "Fiscalize" / "Refresh status". POST only, CSRF-checked, order edit rights required.
+     *
+     * @param string $task
+     *
+     * @return void
+     *
+     * @throws Exception
+     * @since version 1.6.0
+     */
+    private function handleFiscalizationAction(string $task): void
+    {
+        $app = Factory::getApplication();
+        $fail = fn (string $message) => $this->sendAjaxResponse(json_encode(['success' => false, 'message' => $message]));
+
+        if ($app->input->getMethod() !== 'POST' || !Session::checkToken('post')) {
+            $fail(Text::_('JINVALID_TOKEN'));
+        }
+
+        $canEdit = $app->getIdentity()->authorise('core.manage', 'com_virtuemart')
+            && (!class_exists('vmAccess') || \vmAccess::manager('orders.edit'));
+
+        if (!$canEdit) {
+            $fail(Text::_('JERROR_ALERTNOAUTHOR'));
+        }
+
+        $orderId = $app->input->post->getInt('onme');
+        $operationId = $app->input->post->getCmd('operation_id');
+
+        if ($orderId <= 0 || $operationId === '') {
+            $fail(Text::_('VMPAYMENT_ALLIANCEPAY_FISCAL_ERR_OPERATION_NOT_FOUND'));
+        }
+
+        $outcome = $this->fiscalizationFacade->perform(
+            $task === self::FISCALIZATION_STATUS_TRIGGER ? FiscalizationFacade::ACTION_REFRESH : FiscalizationFacade::ACTION_FISCALIZE,
+            $orderId,
+            $operationId
+        );
+
+        $this->sendAjaxResponse(json_encode([
+            'success' => $outcome->accepted,
+            'status' => $outcome->status?->value,
+            'message' => $outcome->message(),
+        ]));
+    }
+
+    /**
+     * @param int $orderId
+     *
+     * @return string the "Fiscalization" block of the order page ('' when fiscalization is off)
+     *
+     * @since version 1.6.0
+     */
+    private function renderFiscalizationBlock(int $orderId): string
+    {
+        if (!$this->fiscalizationFacade->isEnabled()) {
+            return '';
+        }
+
+        $rows = $this->fiscalizationFacade->blockRows($orderId);
+
+        return $this->renderByLayout('fiscalization_block', [
+            'order_id' => $orderId,
+            'rows' => $rows,
+            'error' => $this->fiscalizationFacade->blockError(),
+            'token' => Session::getFormToken(),
+        ]);
+    }
+
+    /**
      * @param string $response
      *
      *
@@ -707,7 +873,7 @@ class AlliancePay extends vmPSPlugin
         $subscription = $this->subscriptionRepository->findByVirtuemartOrderId($orderId);
 
         if ($subscription !== null) {
-            return $this->showSubscriptionOrderBE($subscription);
+            return $this->showSubscriptionOrderBE($subscription) . $this->renderFiscalizationBlock($orderId);
         }
 
         $allianceOrder = $this->allianceOrderTable->load($orderId, 'order_id');
@@ -784,6 +950,7 @@ class AlliancePay extends vmPSPlugin
         $viewData->partialRefundTrigger = self::PARTIAL_REFUND_TRIGGER;
 
         $html .= $this->renderByLayout('refund_form', (array)$viewData);
+        $html .= $this->renderFiscalizationBlock($orderId);
 
         return $html;
     }
